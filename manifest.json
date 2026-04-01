@@ -1,0 +1,20 @@
+{
+  "manifest_version": 3,
+  "name": "AI Trust Checker",
+  "version": "1.0",
+  "description": "Kiểm tra độ tin cậy của bài viết qua AI",
+  "permissions": [
+    "contextMenus",
+    "storage"
+  ],
+  "host_permissions": [
+    "https://generativelanguage.googleapis.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js",
+    "type": "module" 
+  },
+  "icons": {
+    "128": "icons/icon128.png"
+  }
+}

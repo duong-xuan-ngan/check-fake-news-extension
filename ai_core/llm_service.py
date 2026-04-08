@@ -58,7 +58,7 @@ def evaluate_text(user_text: str) -> CredibilityAnalysis:
     try:
         # NEW SDK GENERATION CALL
         response = client.models.generate_content(
-            model='gemini-flash-latest',
+            model='gemini-2.5-flash',
             contents=user_text,
             config=types.GenerateContentConfig(
                 system_instruction=SYSTEM_PROMPT,
@@ -79,7 +79,7 @@ def evaluate_text(user_text: str) -> CredibilityAnalysis:
 if __name__ == "__main__":
     print("Testing AI Pipeline (V2 SDK)...")
     try:
-        test_claim = "The earth is rectangle"
+        test_claim = "The stock market will crash by 50% in December 2026."
         result = evaluate_text(test_claim)
         print("\n✅ Success! Validated JSON Output:")
         print(result.model_dump_json(indent=2))

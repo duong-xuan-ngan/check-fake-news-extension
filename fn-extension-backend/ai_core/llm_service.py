@@ -58,7 +58,7 @@ def evaluate_text(user_text: str) -> CredibilityAnalysis:
     try:
         # NEW SDK GENERATION CALL
         response = client.models.generate_content(
-            model='gemini-flash-latest',
+            model='gemini-2.5-flash',
             contents=user_text,
             config=types.GenerateContentConfig(
                 system_instruction=SYSTEM_PROMPT,

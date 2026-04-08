@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from ai_core.schema import AnalysisRequest, CredibilityAnalysis, ConfidenceLevel
 from ai_core.prefilter import is_checkable_claim
 from ai_core.llm_service import evaluate_text
-
+from pydantic import BaseModel
 app = FastAPI()
 
 

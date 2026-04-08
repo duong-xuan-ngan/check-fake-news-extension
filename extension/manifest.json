@@ -1,20 +1,32 @@
 {
   "manifest_version": 3,
-  "name": "AI Trust Checker",
-  "version": "1.0",
-  "description": "Kiểm tra độ tin cậy của bài viết qua AI",
+  "name": "Fake News Checker",
+  "version": "0.1.0",
+  "description": "Highlight text on any webpage to check for fake news using AI analysis.",
   "permissions": [
-    "contextMenus",
-    "storage"
+    "activeTab",
+    "sidePanel",
+    "contextMenus"
   ],
-  "host_permissions": [
-    "https://generativelanguage.googleapis.com/*"
-  ],
-  "background": {
-    "service_worker": "background.js",
-    "type": "module" 
+  "side_panel": {
+    "default_path": "index.html"
   },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"]
+    }
+  ],
   "icons": {
     "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_icon": {
+      "128": "icons/icon128.png"
+    },
+    "default_title": "Fake News Checker"
   }
 }

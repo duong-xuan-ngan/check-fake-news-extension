@@ -23,3 +23,5 @@ class CredibilityAnalysis(BaseModel):
             raise ValueError('Score must be between 0.0 and 1.0')
         return v
 
+class AnalysisRequest(BaseModel):
+    text: str = Field(..., description="User input whatever")

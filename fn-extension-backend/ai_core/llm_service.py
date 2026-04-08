@@ -5,8 +5,8 @@ from google import genai
 from google.genai import types
 from dotenv import load_dotenv
 
-from schema import CredibilityAnalysis 
-from prefilter import is_checkable_claim
+from .schema import CredibilityAnalysis 
+from .prefilter import is_checkable_claim
 
 load_dotenv()
 
@@ -75,13 +75,13 @@ def evaluate_text(user_text: str) -> CredibilityAnalysis:
     except Exception as e:
         raise Exception(f"AI Pipeline Error: {str(e)}")
 
-# --- Verification Block ---
-if __name__ == "__main__":
-    print("Testing AI Pipeline (V2 SDK)...")
-    try:
-        test_claim = "The earth is rectangle"
-        result = evaluate_text(test_claim)
-        print("\n✅ Success! Validated JSON Output:")
-        print(result.model_dump_json(indent=2))
-    except Exception as e:
-        print(f"\n❌ Error in pipeline: {e}")
+# # --- Verification Block ---
+# if __name__ == "__main__":
+#     print("Testing AI Pipeline (V2 SDK)...")
+#     try:
+#         test_claim = "The earth is rectangle"
+#         result = evaluate_text(test_claim)
+#         print("\n✅ Success! Validated JSON Output:")
+#         print(result.model_dump_json(indent=2))
+#     except Exception as e:
+#         print(f"\n❌ Error in pipeline: {e}")

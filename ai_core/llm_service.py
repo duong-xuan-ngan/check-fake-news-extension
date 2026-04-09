@@ -4,6 +4,7 @@ import json
 from google import genai
 from google.genai import types
 from dotenv import load_dotenv
+from google.genai import errors
 
 from schema import CredibilityAnalysis 
 from prefilter import is_checkable_claim
@@ -70,18 +71,25 @@ def evaluate_text(user_text: str) -> CredibilityAnalysis:
         validated_data = CredibilityAnalysis(**raw_data)
         return validated_data
         
-    except json.JSONDecodeError:
-        raise Exception("LLM failed to return valid JSON.")
+    except errors.ClientError as e:
+        # This catches "Rate Limits" (429) or "Invalid Keys" (401)
+        raise Exception(f"AI Provider Error: Please try again in a moment. {str(e)}")
     except Exception as e:
-        raise Exception(f"AI Pipeline Error: {str(e)}")
+        # This catches everything else (Network out, etc.)
+        raise Exception(f"System Error: Connection to AI failed. {str(e)}")
 
 # --- Verification Block ---
 if __name__ == "__main__":
-    print("Testing AI Pipeline (V2 SDK)...")
-    try:
-        test_claim = "The stock market will crash by 50% in December 2026."
-        result = evaluate_text(test_claim)
-        print("\n✅ Success! Validated JSON Output:")
-        print(result.model_dump_json(indent=2))
-    except Exception as e:
-        print(f"\n❌ Error in pipeline: {e}")
+    test_cases = [
+        "The stock market will crash by 50% in December 2026.", # Test A: Future/Speculative
+        "Coffee is healthy, but it also causes high blood pressure.", # Test B: Nuanced/Mixed
+        "I feel like today is going to be a great day!" # Test C: Non-claim
+    ]
+    
+    for text in test_cases:
+        print(f"\n--- Testing: {text} ---")
+        try:
+            result = evaluate_text(text)
+            print(result.model_dump_json(indent=2))
+        except Exception as e:
+            print(f"Error: {e}")

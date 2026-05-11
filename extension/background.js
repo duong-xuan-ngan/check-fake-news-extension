@@ -1,31 +1,35 @@
-import { checkTrustWithGemini } from './scripts/api.js';
+// Open side panel when extension icon is clicked
+chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true })
 
-// 1. Tạo menu chuột phải khi extension được cài đặt
+// Create context menu item
 chrome.runtime.onInstalled.addListener(() => {
   chrome.contextMenus.create({
-    id: "check-trust-ai",
-    title: "Kiểm tra độ tin cậy với AI",
-    contexts: ["selection"] // Chỉ hiện khi bôi đen văn bản
-  });
-});
+    id: 'analyze-selection',
+    title: 'Analyze with Fake News Checker',
+    contexts: ['selection'],
+  })
+})
 
-// 2. Lắng nghe sự kiện khi người dùng bấm vào menu
+// Handle context menu click — open side panel and send selected text
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
-  if (info.menuItemId === "check-trust-ai") {
-    const selectedText = info.selectionText;
-    console.log("Nội dung người dùng chọn:", selectedText);
+  if (info.menuItemId === 'analyze-selection' && info.selectionText) {
+    // Open the side panel first
+    await chrome.sidePanel.open({ tabId: tab.id })
 
-    // Gửi thông báo "Đang xử lý..." (Giai đoạn 1 tạm dùng log)
-    console.log("Đang gửi dữ liệu đến Gemini API...");
-
-    try {
-      const result = await checkTrustWithGemini(selectedText);
-      console.log("Kết quả từ AI:", result);
-      
-      // Ở Giai đoạn 1, bạn có thể dùng alert để xem kết quả nhanh (chỉ chạy trong content script)
-      // Hoặc đơn giản là nhìn kết quả trong Service Worker Console.
-    } catch (error) {
-      console.error("Lỗi khi kết nối API:", error);
-    }
+    // Small delay to let the panel load, then send the text
+    setTimeout(() => {
+      chrome.runtime.sendMessage({
+        type: 'TEXT_SELECTED',
+        text: info.selectionText,
+      })
+    }, 500)
   }
-});
+})
+
+// Relay messages from content script to side panel
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.type === 'TEXT_SELECTED') {
+    // Forward to all extension pages (side panel will pick it up)
+    chrome.runtime.sendMessage(message)
+  }
+})

@@ -1,25 +1,57 @@
-from pydantic import BaseModel, Field, field_validator
-from typing import List
+from pydantic import BaseModel, Field
+from typing import List, Optional
 from enum import Enum
+
 
 class ConfidenceLevel(str, Enum):
     HIGH = "HIGH"
     MEDIUM = "MEDIUM"
     LOW = "LOW"
-    UNVERIFIABLE = "UNVERIFIABLE"
 
-class CredibilityAnalysis(BaseModel):
-    is_factual: bool = Field(..., description="Whether the input contains checkable factual claims.")
-    extracted_claims: List[str] = Field(..., description="List of discrete verifiable claims.")
-    credibility_score: float = Field(..., description="Score from 0.0 to 1.0.")
-    confidence_level: ConfidenceLevel = Field(..., description="The system's certainty.")
-    reasoning_trace: str = Field(..., description="Chain-of-thought explanation.")
-    
-    # NEW V2 SYNTAX
-    @field_validator('credibility_score')
-    @classmethod
-    def score_range(cls, v: float) -> float:
-        if not 0.0 <= v <= 1.0:
-            raise ValueError('Score must be between 0.0 and 1.0')
-        return v
 
+class Verdict(str, Enum):
+    TRUE = "TRUE"
+    FALSE = "FALSE"
+    UNVERIFIED = "UNVERIFIED"
+    NOT_SURE = "NOT_SURE"
+
+
+class Stance(str, Enum):
+    SUPPORTS = "SUPPORTS"
+    CONTRADICTS = "CONTRADICTS"
+    NEUTRAL = "NEUTRAL"
+
+
+class SearchResult(BaseModel):
+    """Result from Serper web search (Sub-step 2.2)."""
+    url: str
+    title: str
+    snippet: str
+    domain: str
+
+
+class Source(BaseModel):
+    """A source used in the final verdict (Sub-step 2.5 output)."""
+    url: str
+    domain: str
+    title: str
+    credibility_score: float = Field(..., ge=0.0, le=1.0, description="From DE credibility DB.")
+    stance: Stance = Field(..., description="Whether this source supports, contradicts, or is neutral.")
+
+
+class FetchedArticle(BaseModel):
+    """Article content fetched by Newspaper3k (Sub-step 2.4 output)."""
+    url: str
+    domain: str
+    title: str
+    body: str = Field(..., max_length=3000, description="Article text, truncated to 3000 chars.")
+    credibility_score: float = Field(..., ge=0.0, le=1.0, description="Passed through from filtering step.")
+
+
+class AnalysisResult(BaseModel):
+    """Final output from the AI Pipeline — the contract with Backend."""
+    verdict: Verdict
+    explanation: str = Field(..., max_length=500, description="User-facing reasoning.")
+    sources: List[Source] = Field(default_factory=list)
+    confidence: ConfidenceLevel
+    cached: bool = False

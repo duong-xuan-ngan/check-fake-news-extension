@@ -15,9 +15,9 @@ MODEL = "gemini-2.0-flash"
 QUERY_PROMPT = """Your job is to convert highlighted social media text into a search engine query.
 
 Rules:
-1. Output the query string only — nothing else  <- you fill this in (output format rule)
-2. Keep named entities, numbers, dates verbatim  <- you fill this in (entity preservation rule)  
-3. Maximum 15 words, in English  <- you fill this in (length + language rule)
+1. Output the query string only — no explanation, no preamble, no punctuation, no labels.
+2. Keep named entities, numbers, and dates verbatim.
+3. Maximum 15 words, in English.
 """
 
 def _extract_entities(text: str) -> str:
@@ -27,11 +27,11 @@ def _extract_entities(text: str) -> str:
 
 def build_query(text: str) -> str:
     # Layer 1: clean input
-    cleaned = text.strip()  # trim
-    cleaned = " ".join(cleaned.split())  # collapse spaces
-    cleaned = cleaned[:200]  # truncate to 200 chars
+    cleaned = text.strip()
+    cleaned = " ".join(cleaned.split())
+    cleaned = cleaned[:200]
 
-    # Layer 2: LLM reframe, fall back to cleaned if anything goes wrong
+    # Layer 2: LLM reframe, fall back to entity extraction if it fails
     try:
         response = client.models.generate_content(
             model=MODEL,
@@ -43,6 +43,6 @@ def build_query(text: str) -> str:
         return response.text.strip()
     except Exception as e:
         print(f"[query_builder] LLM call failed: {e}")
-    
+
     # Layer 3: entity extraction fallback
     return _extract_entities(cleaned)

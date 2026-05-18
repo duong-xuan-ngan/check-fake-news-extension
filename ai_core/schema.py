@@ -23,29 +23,38 @@ class Stance(str, Enum):
 
 
 class SearchResult(BaseModel):
-    """Result from Serper web search (Sub-step 2.2)."""
+    """Stage 1: Raw result from Serper web search."""
     url: str
     title: str
     snippet: str
     domain: str
 
 
-class Source(BaseModel):
-    """A source used in the final verdict (Sub-step 2.5 output)."""
+class ScoredResult(BaseModel):
+    """Stage 2: SearchResult + credibility score from MBFC lookup."""
     url: str
-    domain: str
     title: str
-    credibility_score: float = Field(..., ge=0.0, le=1.0, description="From DE credibility DB.")
-    stance: Stance = Field(..., description="Whether this source supports, contradicts, or is neutral.")
+    snippet: str
+    domain: str
+    credibility_score: float = Field(..., ge=0.0, le=1.0)
 
 
 class FetchedArticle(BaseModel):
-    """Article content fetched by Newspaper3k (Sub-step 2.4 output)."""
+    """Stage 3: ScoredResult + downloaded article body."""
     url: str
     domain: str
     title: str
     body: str = Field(..., max_length=3000, description="Article text, truncated to 3000 chars.")
     credibility_score: float = Field(..., ge=0.0, le=1.0, description="Passed through from filtering step.")
+
+
+class Source(BaseModel):
+    """Stage 4: FetchedArticle + LLM-assigned stance. Final output type."""
+    url: str
+    domain: str
+    title: str
+    credibility_score: float = Field(..., ge=0.0, le=1.0)
+    stance: Stance = Field(..., description="Whether this source supports, contradicts, or is neutral to the claim.")
 
 
 class AnalysisResult(BaseModel):

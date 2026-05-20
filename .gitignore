@@ -11,3 +11,6 @@ __pycache__/
 .pytest_cache/
 node_modules/
 **/node_modules/
+.agent/
+.windsurf/
+.docs/

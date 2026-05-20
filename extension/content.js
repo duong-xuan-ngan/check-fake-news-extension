@@ -5,7 +5,7 @@ document.addEventListener('mouseup', () => {
 
   if (selectedText && selectedText.length > 0) {
     chrome.runtime.sendMessage({
-      type: 'TEXT_SELECTED',
+      type: selectedText.length > 2000 ? 'SELECTION_TOO_LONG' : 'TEXT_SELECTED',
       text: selectedText,
     })
   }

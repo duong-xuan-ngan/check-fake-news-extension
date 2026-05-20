@@ -1,13 +1,13 @@
-# Build artifacts from Vite (sidepanel-src → extension/)
-extension/assets/
-extension/index.html
+# Python Virtual Environment
+ngan/
 
-# OS
-.DS_Store
-Thumbs.db
+# Environment Variables / Secrets
+.env
 
-# IDE
-.vscode/
-.idea/
-.agent/
-docs/
+# Optional: Common Python artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+node_modules/
+**/node_modules/

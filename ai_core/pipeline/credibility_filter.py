@@ -41,12 +41,18 @@ def lookup_score(domain: str) -> Optional[float]:
 
 
 def filter_credible(results: List[SearchResult]) -> List[ScoredResult]:
-    """Keep only results whose domain clears CREDIBILITY_THRESHOLD."""
+    """Keep only results whose domain clears CREDIBILITY_THRESHOLD.
+    Deduplicates by domain — only the first result per domain is kept.
+    """
     output = []
+    seen_domains = set()
     for result in results:
+        if result.domain in seen_domains:
+            continue
         score = lookup_score(result.domain)
         if score is None or score < CREDIBILITY_THRESHOLD:
             continue
+        seen_domains.add(result.domain)
         output.append(ScoredResult(
             url=result.url,
             title=result.title,

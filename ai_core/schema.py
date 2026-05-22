@@ -1,3 +1,4 @@
+from datetime import datetime
 from pydantic import BaseModel, Field
 from typing import List, Optional
 from enum import Enum
@@ -46,6 +47,7 @@ class FetchedArticle(BaseModel):
     title: str
     body: str = Field(..., max_length=3000, description="Article text, truncated to 3000 chars.")
     credibility_score: float = Field(..., ge=0.0, le=1.0, description="Passed through from filtering step.")
+    published_at: Optional[datetime] = Field(None, description="Article publication date. None if unavailable.")
 
 
 class Source(BaseModel):
@@ -55,6 +57,7 @@ class Source(BaseModel):
     title: str
     credibility_score: float = Field(..., ge=0.0, le=1.0)
     stance: Stance = Field(..., description="Whether this source supports, contradicts, or is neutral to the claim.")
+    published_at: Optional[datetime] = Field(None, description="Article publication date. None if unavailable.")
 
 
 class AnalysisResult(BaseModel):

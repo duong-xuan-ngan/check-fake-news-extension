@@ -11,15 +11,12 @@ Thumbs.db
 .idea/
 package-lock.json
 
-# env
+# Environment Variables / Secrets
 .env
 data/cache.json
 
 # Python Virtual Environment
 ngan/
-
-# Environment Variables / Secrets
-.env
 
 # Optional: Common Python artifacts
 __pycache__/

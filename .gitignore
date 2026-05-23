@@ -14,3 +14,16 @@ package-lock.json
 # env
 .env
 data/cache.json
+
+# Python Virtual Environment
+ngan/
+
+# Environment Variables / Secrets
+.env
+
+# Optional: Common Python artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+node_modules/

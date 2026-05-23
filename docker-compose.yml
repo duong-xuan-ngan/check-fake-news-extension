@@ -9,9 +9,9 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - ./de/init.sql:/docker-entrypoint-initdb.d/init.sql
-      - pg_data:/var/lib/postgresql/data
+      - pg_data:/var/lib/postgresql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -35,7 +35,7 @@ services:
       postgres:
         condition: service_healthy
     command: >
-      sh -c "python seed.py && python qdrant_setup.py && uvicorn de.api.main:app --host 0.0.0.0 --port 8001"
+      sh -c "python seed.py && python qdrant_setup.py && uvicorn api.main:app --host 0.0.0.0 --port 8001"
     ports:
       - "8001:8001"
     volumes:
@@ -43,4 +43,4 @@ services:
 
 volumes:
   pg_data:
-  qrant_data:
+  qdrant_data:

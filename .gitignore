@@ -10,3 +10,7 @@ Thumbs.db
 .vscode/
 .idea/
 package-lock.json
+
+# env
+.env
+data/cache.json

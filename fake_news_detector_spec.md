@@ -1,8 +1,8 @@
 # Fake News Detector — System Specification & Team Execution Plan
 
-> **Document type:** Pre-implementation specification
-> **Status:** Draft — pending Phase 0 agreements
-> **Note:** Numeric thresholds (similarity, credibility, latency) are initial proposals and must be confirmed by the team in Phase 0.
+> **Document type:** Pre-implementation specification with implementation notes
+> **Status:** AI Pipeline implemented (Step 8). Other roles pending.
+> **Note:** Numeric thresholds (similarity, credibility, latency) are initial proposals and must be confirmed by the team in Phase 0. Implementation notes for the AI Pipeline reflect the state after Step 8 (May 2026); other stages remain as designed.
 
 ---
 
@@ -90,7 +90,7 @@ Each stage below defines the agreed contract before any code is written. Every f
 | ------------- | ------- | -------------------------------------------------------------- |
 | `verdict`     | string  | `TRUE` / `FALSE` / `UNVERIFIED` / `NOT_SURE`                   |
 | `explanation` | string  | Free text, max 500 chars                                       |
-| `sources`     | array   | Each: `{ url, domain, credibility_score, title }`              |
+| `sources`     | array   | Each: `{ url, domain, credibility_score, title, stance, published_at }` |
 | `cached`      | boolean | Always `true` on cache hit                                     |
 
 **On cache miss:** `null` — Backend proceeds to AI Pipeline.
@@ -104,6 +104,8 @@ Each stage below defines the agreed contract before any code is written. Every f
 
 - DE must have Qdrant running and the lookup API exposed **before** Backend can implement cache check.
 - Embedding model selection must be agreed between Backend and DE (same model used for both storing and querying).
+
+> **Implementation note (Step 8):** AI Pipeline currently ships an interim **hash-based disk cache** (`data/cache.json`, 24h TTL) keyed on SHA-256 of the lowercased English claim. This lives inside `ai_core/cache.py` and is wired into `analyze()` itself, not exposed to Backend. It is functionally correct for English inputs and pure happy-coincidence hits across languages, but does not survive LLM translation jitter for the same non-English input across runs. **It will be replaced by the Qdrant vector cache described in this stage** when DE delivers — at that point, caching moves from inside the pipeline to the Backend layer where it belongs architecturally.
 
 ### 5. Main Failure Cases
 
@@ -123,21 +125,57 @@ Each stage below defines the agreed contract before any code is written. Every f
 
 The pipeline executes sequentially in v1. Each sub-step is specified below.
 
+> **Implementation status (Step 8):** All sub-stages below are implemented in `ai_core/`. The public entry point is `ai_core.analyze(text: str) -> AnalysisResult`. The pipeline never raises — every failure mode maps to `NOT_SURE`.
+
+---
+
+### Sub-step 2.0 — Preprocessing (Language Normalization)
+
+> **Added during Step 8** — translation responsibility was lifted out of `query_builder` into its own pipeline stage so that all downstream stages always see English input.
+
+**1. Input Data:** Raw `text` string in any language.
+
+**2. Output Data:** A cleaned, English-language claim string (`english_claim`), max 1,500 chars.
+
+**3. Internal State:** None persisted.
+
+**4. Dependencies:** `OPENROUTER_API_KEY` for the translation LLM call.
+
+**5. Processing logic:**
+- Strip and collapse whitespace, truncate to 1,500 chars.
+- **Cheap heuristic first:** if every char is in basic Latin + common punctuation, treat as English and skip the LLM call entirely.
+- **Otherwise:** call OpenRouter to translate. The translation prompt is narrow: preserve named entities, numbers, and dates verbatim; return only the translated text.
+
+**6. Failure Cases:**
+
+| Failure                          | Expected Behavior                                              |
+| -------------------------------- | -------------------------------------------------------------- |
+| Translation LLM fails or times out | Fall back to the cleaned original text (graceful degradation; downstream stages may then return `NOT_SURE`) |
+| LLM returns empty translation    | Fall back to the cleaned original text                         |
+| Input is empty after cleaning    | `analyze()` short-circuits and returns `NOT_SURE` immediately  |
+
+**7. Latency:** < 100 ms for English (no LLM); 1–7 seconds for non-English (one LLM call).
+
 ---
 
 ### Sub-step 2.1 — Query Generation
 
-**1. Input Data:** Raw `text` string (the highlighted claim).
+**1. Input Data:** The `english_claim` string from 2.0.
 
-**2. Output Data:** A search query string, max 10 words, preserving names, numbers, and dates.
+**2. Output Data:** A search query string, max ~15 words, preserving names, numbers, and dates.
 
 **3. Internal State:** None persisted.
 
-**4. Dependencies:** None.
+**4. Dependencies:** `OPENROUTER_API_KEY`.
 
-**5. Failure Cases:** If text contains no extractable keywords (e.g., pure punctuation), return `NOT_SURE` immediately without proceeding.
+**5. Processing logic:** Three-layer fallback in `query_builder.build_search_query()`:
+- **Layer 1:** if the claim is already ≤ 10 words, use it directly (no LLM call).
+- **Layer 2:** LLM rewrite — turn the claim into a keyword-focused query, strip filler/stop words, keep entities/numbers/dates.
+- **Layer 3:** regex entity extraction — capitalized tokens + numbers, as a last resort if the LLM fails.
 
-**6. Latency:** < 100 ms (in-process function).
+**6. Failure Cases:** Never raises. If all three layers degrade to an empty string, downstream search will return zero results and the pipeline will return `NOT_SURE`.
+
+**7. Latency:** < 100 ms for short claims (Layer 1); 1–3 seconds when the LLM is invoked.
 
 ---
 
@@ -156,7 +194,7 @@ The pipeline executes sequentially in v1. Each sub-step is specified below.
 
 **3. Internal State:** None persisted.
 
-**4. Dependencies:** Backend must provide `SERPER_API_KEY` as environment variable.
+**4. Dependencies:** `SERPER_API_KEY` as environment variable.
 
 **5. Failure Cases:**
 
@@ -174,27 +212,33 @@ The pipeline executes sequentially in v1. Each sub-step is specified below.
 
 **1. Input Data:** List of result objects from 2.2 (each with `domain` field).
 
-**2. Output Data:** Filtered list — only results where `credibility_score >= 0.60` are retained.
+**2. Output Data:** Filtered list — only results where `credibility_score >= 0.50` are retained. Output is **deduplicated by domain** (first occurrence wins).
 
-**3. Internal State:** None persisted. Credibility data lives in DE's PostgreSQL.
+**3. Internal State:** None persisted in the running process. Credibility data lives in DE's PostgreSQL — see implementation note below.
 
 **4. Dependencies:** DE must expose `GET /credibility?domain=<domain>` returning `{ credibility_score, category }`.
+
+> **Implementation note (Step 5):** Until DE delivers the credibility endpoint, AI Pipeline ships a static `data/mbfc_credibility.json` (built one-time by `scripts/build_mbfc.py` from MBFC raw CSV) and loads it at module import. When DE delivers the live endpoint, only `credibility_filter._load_db()` needs to change. The JSON file can then be deleted.
+>
+> **Subdomain fallback:** If the exact domain is not in the DB, the filter strips the subdomain and retries (e.g. `en.wikipedia.org` → `wikipedia.org`).
+>
+> **Known MBFC quirk:** `facebook.com` and `youtube.com` score 0.9 in MBFC because they are rated as platforms, not publishers. The fetcher (Step 2.4) typically fails to extract usable bodies from these domains anyway, so they self-exclude downstream.
 
 **5. Failure Cases:**
 
 | Failure                          | Expected Behavior                                                   |
 | -------------------------------- | ------------------------------------------------------------------- |
-| DE credibility API unreachable   | Fall back to a hardcoded allowlist of credible Vietnamese domains   |
-| Domain not found in DB           | Assign neutral score of 0.5; include in fetch candidates            |
+| DE credibility API unreachable   | (Future) Fall back to bundled MBFC JSON                             |
+| Domain not found in DB           | Drop the result (current behavior — does not pass the threshold)    |
 | All results filtered out         | Return `NOT_SURE`; log with reason `"no_credible_sources"`          |
 
-**6. Latency:** < 500 ms total for batch domain lookups.
+**6. Latency:** < 100 ms (in-memory JSON lookup); < 500 ms when DE endpoint is in use.
 
 ---
 
-### Sub-step 2.4 — Content Fetching (Newspaper3k)
+### Sub-step 2.4 — Content Fetching (newspaper3k + BeautifulSoup fallback)
 
-**1. Input Data:** Filtered list of URLs from 2.3 — max 5 URLs to limit latency.
+**1. Input Data:** Deduplicated, filtered list of URLs from 2.3 — currently up to ~10 URLs (the filter caps via deduplication, not a hard URL count).
 
 **2. Output Data:** List of fetched article objects:
 
@@ -205,68 +249,85 @@ The pipeline executes sequentially in v1. Each sub-step is specified below.
 | `title`             | string                        |
 | `body`              | string (max 3,000 chars)      |
 | `credibility_score` | float (passed through from 2.3) |
+| `published_at`      | `Optional[datetime]` — UTC; `None` if not extractable (added in Step 7.5) |
 
 **3. Internal State:** None persisted.
 
 **4. Dependencies:** Filtered URL list from 2.3.
 
-**5. Failure Cases:**
+**5. Processing logic:**
+- **Primary parser:** newspaper3k.
+- **Fallback parser:** `requests` + BeautifulSoup `<p>` extraction.
+- **Skip rule:** body < 150 chars (`MIN_BODY_LENGTH`) → skip; don't pass to synthesizer.
+- **Date extraction (Step 7.5):** three strategies tried in order — (1) standard meta tags like `article:published_time`, (2) JSON-LD `datePublished` inside `<script type="application/ld+json">` (used by ESPN, NYT, etc.), (3) `<time datetime="...">` element. Articles without parseable dates are kept; `published_at` defaults to `None`.
+
+**6. Failure Cases:**
 
 | Failure                     | Expected Behavior                                              |
 | --------------------------- | -------------------------------------------------------------- |
 | Fetch blocked (403/429)     | Skip URL; continue with remaining                              |
-| JavaScript-rendered page    | Log as `"js_render_required"`; skip for v1; use Playwright in v2 |
+| JavaScript-rendered page    | Skip; v2 candidate for Playwright                              |
 | Fetch timeout (> 5s/URL)    | Skip URL                                                       |
-| All fetches fail            | Return `NOT_SURE`; log with reason `"all_fetches_failed"`      |
+| All fetches fail            | Synthesizer receives empty list → returns `NOT_SURE`           |
 
-**6. Latency:** Fetch up to 5 URLs in parallel; total fetch budget **< 6 seconds**.
+**7. Latency:** Sequential in v1; total fetch budget **< 8 seconds** for typical 3–5 successful fetches. Parallel fetch is a v2 optimization.
 
 ---
 
-### Sub-step 2.5 — LLM Analysis (Gemini API)
+### Sub-step 2.5 — LLM Analysis / Verdict Synthesis
+
+> **Provider change (Step 7.5):** This sub-step originally specified Gemini. It now uses **OpenRouter** (`https://openrouter.ai/api/v1`, OpenAI-compatible SDK, model `openrouter/auto`). The change brought consistency with the preprocessor and query_builder, and gave us free-tier model availability across multiple providers behind a single API.
 
 **1. Input Data:**
 
-| Field              | Type                      |
-| ------------------ | ------------------------- |
-| `original_text`    | string (the user's claim) |
-| `fetched_articles` | array of articles from 2.4 |
+| Field              | Type                       | Notes                              |
+| ------------------ | -------------------------- | ---------------------------------- |
+| `english_claim`    | string                     | The normalized claim from Step 2.0 (NOT the raw user text — cross-language reasoning happens upstream of the synthesizer) |
+| `fetched_articles` | `List[FetchedArticle]`     | From 2.4                           |
 
-**2. Output Data (structured JSON from LLM):**
+**2. Output Data (Pydantic `AnalysisResult`):**
 
 ```json
 {
   "verdict": "TRUE | FALSE | UNVERIFIED | NOT_SURE",
   "explanation": "string, max 500 chars",
-  "supporting_sources": [
+  "sources": [
     {
       "url": "string",
       "domain": "string",
-      "credibility_score": 0.0,
       "title": "string",
-      "stance": "SUPPORTS | CONTRADICTS | NEUTRAL"
+      "credibility_score": 0.0,
+      "stance": "SUPPORTS | CONTRADICTS | NEUTRAL",
+      "published_at": "ISO 8601 datetime or null"
     }
   ],
-  "confidence": "HIGH | MEDIUM | LOW"
+  "confidence": "HIGH | MEDIUM | LOW",
+  "cached": false
 }
 ```
 
-**Prompt contract (to be finalized by AI Pipeline role):** Prompt must instruct Gemini to (a) determine whether the claim is supported, contradicted, or unverifiable based on provided articles; (b) output a structured JSON object — no free prose; (c) return `"NOT_SURE"` if evidence is ambiguous or insufficient.
+**Anti-hallucination pattern (critical):** The LLM only returns `article_index` (the index into the `fetched_articles` array we passed it), stance, verdict, explanation, and confidence. The synthesizer fills in URLs, titles, domains, credibility scores, and `published_at` from our own `FetchedArticle` data. **The LLM is never asked to echo back data we already have.** This eliminates a major hallucination surface with zero benefit.
+
+**Structured chain-of-thought pattern:** The prompt forces the LLM to write `claim_in_article` (what the article actually says) and `user_claim` (what the user claimed) as required JSON fields *before* picking a `stance` label. This makes the stance comparison explicit and reduces label confusion.
+
+**Temporal rule:** When two sources directly contradict each other, the synthesizer prefers the more recent `published_at`. Sources without dates cannot override sources with dates. The rule is intentionally narrow — no broad "is this claim time-sensitive?" judgment, which would itself be a hallucination surface.
 
 **3. Internal State:** None persisted.
 
-**4. Dependencies:** Backend must provide `GEMINI_API_KEY` as environment variable. Articles from 2.4.
+**4. Dependencies:** `OPENROUTER_API_KEY` (environment variable). Articles from 2.4.
 
 **5. Failure Cases:**
 
 | Failure                         | Expected Behavior                                                |
 | ------------------------------- | ---------------------------------------------------------------- |
-| Gemini rate limit               | Retry once after 2s; if fails again, return `NOT_SURE`           |
-| LLM returns malformed JSON      | Retry once with stricter JSON instruction; if fails, `NOT_SURE`  |
+| OpenRouter rate limit           | Return `NOT_SURE`; log reason `"llm_rate_limit"`                 |
+| LLM returns malformed JSON      | `response_format={"type": "json_object"}` enforced; on parse fail still, return `NOT_SURE` |
 | LLM timeout (> 10s)             | Abort; return `NOT_SURE`; log reason                             |
-| LLM outputs forbidden verdict   | Validate enum on receipt; default to `NOT_SURE`                  |
+| LLM outputs forbidden enum value | Pydantic validation rejects; default to `NOT_SURE`              |
+| Reasoning model `<think>...</think>` blocks in output | Stripped via regex before JSON parsing |
+| Empty `fetched_articles`        | Short-circuit: return `NOT_SURE` with explanation "Could not retrieve enough evidence", confidence `LOW`, sources `[]` |
 
-**6. Latency:** < 8 seconds.
+**6. Latency:** 5–15 seconds (varies with `openrouter/auto` model selection).
 
 ---
 
@@ -274,7 +335,7 @@ The pipeline executes sequentially in v1. Each sub-step is specified below.
 
 ### 1. Input Data
 
-The full structured JSON from Sub-step 2.5.
+The full `AnalysisResult` from Sub-step 2.5.
 
 ### 2. Output Data
 
@@ -288,9 +349,10 @@ The full structured JSON from Sub-step 2.5.
     {
       "url": "string",
       "domain": "string",
-      "credibility_score": 0.0,
       "title": "string",
-      "stance": "SUPPORTS | CONTRADICTS | NEUTRAL"
+      "credibility_score": 0.0,
+      "stance": "SUPPORTS | CONTRADICTS | NEUTRAL",
+      "published_at": "ISO 8601 datetime or null"
     }
   ],
   "confidence": "HIGH | MEDIUM | LOW",
@@ -304,7 +366,7 @@ The full structured JSON from Sub-step 2.5.
 ```json
 {
   "error": "string",
-  "failed_at_stage": "search | filter | fetch | llm | cache",
+  "failed_at_stage": "preprocess | search | filter | fetch | llm | cache",
   "verdict": "NOT_SURE"
 }
 ```
@@ -322,14 +384,14 @@ After a successful pipeline run, Backend triggers DE's cache store API with the 
 
 | Failure                              | Expected Behavior                                              |
 | ------------------------------------ | -------------------------------------------------------------- |
-| Pipeline returns malformed verdict   | Return error response with `failed_at_stage = "llm"`           |
+| Pipeline returns malformed verdict   | (Cannot happen — Pydantic validates enums.) Falls under generic exception handling. |
 | Cache store fails                    | Log error; do not affect Frontend response (fire-and-forget)   |
 
 ### 6. Performance / Latency Expectations
 
 | Path                            | Target                |
 | ------------------------------- | --------------------- |
-| Cache miss — full pipeline      | **< 15 seconds** end-to-end |
+| Cache miss — full pipeline      | **< 25 seconds** end-to-end (loosened from 15s based on observed LLM latency on free-tier OpenRouter routing) |
 | Cache hit                       | **< 1 second**        |
 
 ---
@@ -362,7 +424,7 @@ This section converts the specification into concrete, assigned tasks with clear
 **Exact tasks:**
 - Create a `sources` table with fields: `domain`, `credibility_score`, `category`, `last_updated`.
 - Seed it with at least 50 Vietnamese news domains (VnExpress, Tuổi Trẻ, Thanh Niên, Dân Trí, etc.) with manually assigned credibility scores.
-- Supplement with MBFC data where available for international domains.
+- Supplement with MBFC data where available for international domains. (**Reference:** AI Pipeline currently ships `data/mbfc_credibility.json` built by `scripts/build_mbfc.py`. DE can reuse this as the international seed and add Vietnamese domains on top.)
 - Expose a REST endpoint: `GET /credibility?domain=<domain>` → `{ credibility_score, category }`.
 - Handle the "domain not found" case explicitly (return neutral score 0.5).
 
@@ -424,7 +486,7 @@ This section converts the specification into concrete, assigned tasks with clear
 
 **Deliverable:** Running FastAPI app, endpoint reachable at `http://backend:8000/analyze` inside Docker network.
 
-**Definition of Done:** Sending `POST /analyze` with a test text returns a valid JSON response matching the spec schema in < 15 seconds. Invalid inputs return 400 with a descriptive error.
+**Definition of Done:** Sending `POST /analyze` with a test text returns a valid JSON response matching the spec schema in < 25 seconds. Invalid inputs return 400 with a descriptive error.
 
 ---
 
@@ -440,13 +502,15 @@ This section converts the specification into concrete, assigned tasks with clear
 
 **Definition of Done:** A request for a previously cached claim returns in < 1 second with `"cached": true` in the response.
 
+> **Note:** AI Pipeline currently has an in-process hash cache as a stand-in (see Stage 1 implementation note). When the Qdrant cache lands, the in-process cache should be removed from `ai_core.analyze()` — caching is properly a Backend responsibility.
+
 ---
 
 ### Task 3 — AI Pipeline Orchestration
 
 **Exact tasks:**
-- Call the AI Pipeline module with `{ text, serper_api_key, gemini_api_key }`.
-- Receive structured result.
+- Import `from ai_core import analyze` and call `analyze(text)` — single function call, no API keys passed in (the pipeline loads its own keys from `.env`).
+- Receive `AnalysisResult` (Pydantic model — convert via `.model_dump()` for JSON response).
 - Fire-and-forget: call DE's cache store endpoint asynchronously (do not await before responding to Frontend).
 - Log the request via DE's logging endpoint.
 
@@ -459,8 +523,7 @@ This section converts the specification into concrete, assigned tasks with clear
 ### Task 4 — API Key Management
 
 **Exact tasks:**
-- Load `SERPER_API_KEY`, `GEMINI_API_KEY` from environment variables only.
-- Pass keys to AI Pipeline via function arguments, not global state.
+- AI Pipeline loads `SERPER_API_KEY` and `OPENROUTER_API_KEY` from `.env` itself — Backend does not pass them.
 - Verify at startup that required keys are present; crash with a clear error if missing.
 - Add keys to `.env.example` (with placeholder values) for documentation.
 
@@ -473,14 +536,14 @@ This section converts the specification into concrete, assigned tasks with clear
 ### Task 5 — Error Handling & Response Normalization
 
 **Exact tasks:**
-- Catch all exceptions from the AI Pipeline and DE integrations.
-- Return the standardized error response JSON (see Stage 3 spec) with `failed_at_stage` populated.
+- `ai_core.analyze()` is guaranteed never to raise — any internal failure returns an `AnalysisResult` with `verdict=NOT_SURE`. Backend should still wrap the call in try/except as defensive programming, but the expected failure path is a `NOT_SURE` result, not an exception.
+- For unexpected exceptions (network, malformed request), return the standardized error response JSON (see Stage 3 spec) with `failed_at_stage` populated.
 - Log all errors to DE's logging endpoint.
 - Never expose raw stack traces to Frontend.
 
 **Deliverable:** Error handling middleware in FastAPI.
 
-**Definition of Done:** Simulating a Serper API failure returns `{ "error": "...", "failed_at_stage": "search", "verdict": "NOT_SURE" }` to the caller, not a 500 with a Python traceback.
+**Definition of Done:** Simulating a Serper API failure returns `{ verdict: "NOT_SURE", ... }` (graceful — preferred path) to the caller, not a 500 with a Python traceback.
 
 ---
 
@@ -531,7 +594,7 @@ This section converts the specification into concrete, assigned tasks with clear
 
 **Exact tasks:**
 - Show the panel immediately on icon click with a loading skeleton.
-- Panel must remain visible while the Backend processes (up to 15 seconds).
+- Panel must remain visible while the Backend processes (up to 25 seconds).
 - Show a spinner or animated placeholder — not a blank panel.
 
 **Deliverable:** Panel component with loading state distinct from result state.
@@ -545,7 +608,7 @@ This section converts the specification into concrete, assigned tasks with clear
 **Exact tasks:**
 - Parse the Backend response JSON.
 - Render Section 1: verdict label (color-coded: green/red/grey), confidence badge, explanation text.
-- Render Section 2: sources list — each source shows domain, credibility score (as a bar or percentage), and stance label.
+- Render Section 2: sources list — each source shows domain, credibility score (as a bar or percentage), stance label, and **publication date** (if `published_at` is present).
 - Render the `NOT_SURE` state with neutral styling and text: "Insufficient evidence to determine credibility."
 - Render the error state with a friendly message (no raw JSON shown to user).
 - Panel must be dismissible (close button or click-outside).
@@ -558,74 +621,129 @@ This section converts the specification into concrete, assigned tasks with clear
 
 ## 2.4 AI Pipeline
 
-### Task 1 — Search Query Generation
+> **Status (Step 8 complete):** All tasks in this section are implemented. The notes below have been updated to reflect what was actually built. Open items (Qdrant cache migration, parallel fetch, atomic claim decomposition) are listed under "Future work" at the end.
+
+### Task 1 — Preprocessing (Language Normalization) — *added during Step 8*
 
 **Exact tasks:**
-- Write a function `generate_query(text: str) -> str` that extracts the most specific keywords from the input.
-- Preserve named entities (people, organizations, locations), numbers, and dates.
-- Strip filler phrases ("it is said that", "reportedly", etc.).
-- Cap output at 10 words.
+- Write `preprocessor.normalize(text: str) -> str` that returns a cleaned English claim.
+- Use a regex heuristic (`is_english`) to skip the LLM for pure-ASCII input.
+- Call OpenRouter to translate non-English input; the translation prompt is narrow (preserve entities/numbers/dates, return text only).
+- Fall back to the cleaned original on any translation failure (graceful degradation).
 
-**Deliverable:** Tested Python function with at least 5 unit test cases covering different input types.
+**Deliverable:** `ai_core/pipeline/preprocessor.py` with `is_english`, `translate_to_english`, and `normalize` functions.
 
-**Definition of Done:** Given "Chính phủ Việt Nam công bố GDP tăng 7.2% trong quý 3 năm 2024", the function returns a query containing "GDP 7.2% quý 3 2024".
+**Definition of Done:** Vietnamese input is translated correctly; English input bypasses the LLM (verified in REPL tests). Empty input returns empty string. Translation timeout returns the cleaned original.
 
 ---
 
-### Task 2 — Web Search Integration
+### Task 2 — Search Query Generation
 
 **Exact tasks:**
-- Write a function `search(query: str, api_key: str) -> List[SearchResult]` that calls Serper API.
-- Parse the response into a list of `SearchResult` objects with fields: `url`, `domain`, `title`, `snippet`.
-- Extract domain from URL using Python's `urllib.parse`.
-- Implement timeout (5s) and handle rate limit / empty results per the spec.
+- Write `build_search_query(english_claim: str) -> str` in `query_builder.py`.
+- Three-layer fallback: short claims pass through (no LLM); medium claims are LLM-rewritten; LLM failure falls back to regex entity extraction.
+- Cap output at ~15 words. Preserve entities, numbers, dates.
 
-**Deliverable:** Function with integration test (using a real Serper key in a local `.env`).
+**Deliverable:** `ai_core/pipeline/query_builder.py`.
+
+**Definition of Done:** Given "Florentino Perez is the president of FC Barcelona" (already short — Layer 1 passes through). Given a 50-word Vietnamese-translated claim, the LLM produces a focused English keyword query.
+
+---
+
+### Task 3 — Web Search Integration
+
+**Exact tasks:**
+- Write `search(query: str) -> List[SearchResult]` calling Serper API.
+- Parse response into `SearchResult` Pydantic models with `url`, `domain`, `title`, `snippet`.
+- Extract domain using `urllib.parse.urlparse(url).netloc.removeprefix("www.")`.
+- Implement timeout and handle rate limit / empty results per the spec.
+
+**Deliverable:** `ai_core/pipeline/searcher.py`.
 
 **Definition of Done:** Function returns a non-empty list of results for a test query. Rate limit and timeout scenarios return an empty list with a logged reason, not an exception.
 
 ---
 
-### Task 3 — Source Credibility Filtering
+### Task 4 — Source Credibility Filtering
 
 **Exact tasks:**
-- Write a function `filter_by_credibility(results, de_api_url) -> List[SearchResult]` that calls DE's credibility endpoint for each domain.
-- Retain only results with `credibility_score >= 0.60`.
-- Implement fallback to hardcoded allowlist if DE API is unreachable.
-- Hardcoded allowlist must be stored in a config file, not inline.
+- Write `filter_credible(results) -> List[ScoredResult]` in `credibility_filter.py`.
+- Load credibility DB at module import (interim: `data/mbfc_credibility.json`; future: HTTP call to DE).
+- Apply threshold (`CREDIBILITY_THRESHOLD = 0.5`).
+- **Deduplicate by domain** (first occurrence wins).
+- Subdomain fallback: `en.wikipedia.org` → look up `wikipedia.org` if the exact match fails.
 
-**Deliverable:** Function + hardcoded fallback allowlist file (`pipeline/config/credible_domains.json`).
+**Deliverable:** `ai_core/pipeline/credibility_filter.py` + `data/mbfc_credibility.json` + `scripts/build_mbfc.py`.
 
-**Definition of Done:** Function filters a test list correctly. With DE API mocked as unreachable, function falls back to allowlist without raising an exception.
+**Definition of Done:** Filter retains credible domains, drops uncredible, deduplicates. When DE delivers the endpoint, only `_load_db()` needs to change.
 
 ---
 
-### Task 4 — Content Fetching
+### Task 5 — Content Fetching
 
 **Exact tasks:**
-- Write an async function `fetch_articles(urls: List[str]) -> List[Article]` that fetches up to 5 URLs in parallel using `asyncio`.
-- Use `newspaper3k` as primary parser; fall back to `BeautifulSoup` if `newspaper3k` fails.
-- Truncate body to 3,000 characters.
-- Skip and log any URL that times out (5s), returns 4xx/5xx, or raises an exception.
+- Write `fetch_all(scored: List[ScoredResult]) -> List[FetchedArticle]` in `fetcher.py`.
+- Primary parser: newspaper3k. Fallback: `requests` + BeautifulSoup.
+- Truncate body to 3,000 chars; skip if body < 150 chars.
+- **Extract `published_at`** via three strategies: meta tags → JSON-LD → `<time>` element.
 
-**Deliverable:** Async fetch function with at least 3 test URLs covering success, failure, and timeout scenarios.
+**Deliverable:** `ai_core/pipeline/fetcher.py`.
 
-**Definition of Done:** Function fetches content from VnExpress and Tuổi Trẻ successfully. A 404 URL is skipped without crashing. Total fetch time for 5 URLs does not exceed 6 seconds.
+**Definition of Done:** Fetches content from ESPN, Wikipedia, Yahoo Sports successfully. A blocked URL is skipped without crashing. Dates extracted correctly from sites using JSON-LD (e.g. ESPN).
 
 ---
 
-### Task 5 — LLM Analysis and Verdict Synthesis
+### Task 6 — LLM Analysis and Verdict Synthesis
 
 **Exact tasks:**
-- Write a function `analyze(original_text, articles, api_key) -> Verdict` that calls Gemini API.
-- Construct the prompt per the prompt contract defined in Stage 2.5 of this spec.
-- Parse and validate the JSON response — enforce the enum values for `verdict` and `confidence`.
-- Implement one retry on malformed JSON.
-- Return a `Verdict` dataclass (not a raw dict) so Backend and tests have type safety.
+- Write `synthesize(english_claim, articles) -> AnalysisResult` in `synthesizer.py`.
+- Single LLM call (OpenRouter, `openrouter/auto`). Use `response_format={"type": "json_object"}`.
+- Apply the **anti-hallucination pattern**: LLM returns indices + stance + verdict; synthesizer fills in URLs/titles/domains/credibility/dates from the input `FetchedArticle` list.
+- Apply the **structured chain-of-thought pattern**: prompt forces `claim_in_article` and `user_claim` as required JSON fields before stance.
+- Apply the **temporal rule**: more recent dated source wins on direct contradiction.
+- Strip `<think>...</think>` blocks (some reasoning models include them) before JSON parsing.
+- Return `NOT_SURE` if articles list is empty or LLM fails.
 
-**Deliverable:** Function + `Verdict` dataclass definition in `pipeline/models.py`. Prompt template stored in `pipeline/prompts/analyze.txt`.
+**Deliverable:** `ai_core/pipeline/synthesizer.py`.
 
-**Definition of Done:** Function returns a valid `Verdict` for a test set of 3 articles (one supporting, one contradicting, one neutral). Malformed JSON from a mocked Gemini triggers one retry. `NOT_SURE` is returned when Gemini is mocked as timing out.
+**Definition of Done:** Given articles supporting / contradicting a claim, the synthesizer returns the correct verdict with the correct sources. Empty articles list returns `NOT_SURE` with confidence `LOW`. Verified live with English, Vietnamese, true, false, and opinion claims.
+
+---
+
+### Task 7 — Public `analyze()` entry point
+
+**Exact tasks:**
+- Implement `ai_core.analyze(text: str) -> AnalysisResult` in `ai_core/__init__.py`.
+- Wire all sub-stages: preprocessor → cache → query_builder → searcher → credibility_filter → fetcher → synthesizer → cache store.
+- Never raise — empty input or any internal failure returns a `NOT_SURE` `AnalysisResult`.
+- Single integration point with Backend.
+
+**Deliverable:** `ai_core/__init__.py`.
+
+**Definition of Done:** Backend can `from ai_core import analyze` and call with a string, receiving a valid `AnalysisResult`. End-to-end smoke test (`scripts/test_pipeline.py`) passes all four cases.
+
+---
+
+### Task 8 — Interim disk cache (to be replaced by Qdrant)
+
+**Exact tasks:**
+- Implement `ai_core/cache.py` with `get(english_claim)` and `set(english_claim, result)`.
+- SHA-256 key on lowercased English claim. JSON file at `data/cache.json`. 24h TTL. Prune-on-write.
+- This is a **temporary measure** until DE delivers the Qdrant vector cache (Stage 1).
+
+**Deliverable:** `ai_core/cache.py`.
+
+**Definition of Done:** Repeat English claims hit the cache. Vietnamese inputs that happen to translate to the same English string also hit. Known limitation documented: LLM translation jitter means same Vietnamese input may produce different cache keys across runs — to be solved by Qdrant vector cache (similarity-based, not hash-based).
+
+---
+
+### Future work (open items)
+
+- **Migrate cache to Qdrant** (Stage 1) when DE delivers. Caching moves from `ai_core.analyze()` to the Backend layer; the in-process disk cache is then deleted.
+- **Parallel fetching** in `fetcher.py` (currently sequential; async would cut fetch latency significantly).
+- **Atomic claim decomposition** — multi-claim posts are currently collapsed into a single search query. A v2 atomic-claim splitter would individually verify each sub-claim.
+- **Single-source confidence inflation** — when only 1 article survives fetching, the LLM still confidently returns `HIGH`. Open question: hard rule in prompt vs. trust LLM judgment.
+- **Pinned model vs `openrouter/auto`** — per-source stance labels are noisier under the auto-router. Worth revisiting if user-facing problems emerge.
 
 ---
 
@@ -635,16 +753,16 @@ This section explicitly maps where roles must coordinate. Uncoordinated work at 
 
 | # | Dependency                       | Roles Involved      | What Must Be Agreed                                                            | When                                  |
 | - | -------------------------------- | ------------------- | ------------------------------------------------------------------------------ | ------------------------------------- |
-| 1 | Embedding model selection        | Backend + DE        | Model name (e.g. multilingual MiniLM), output dimension, library               | Before any code is written            |
+| 1 | Embedding model selection        | Backend + DE        | Model name (e.g. multilingual MiniLM), output dimension, library               | Before Qdrant cache integration       |
 | 2 | Cache similarity threshold       | Backend + DE        | Numeric value (proposed: 0.92); stored in DE config, read by Backend           | Before cache integration              |
-| 3 | Credibility score threshold      | AI Pipeline + DE    | Minimum score to pass filter (proposed: 0.60); must match DE's seeded data     | Before filtering logic                |
-| 4 | `/credibility` endpoint schema   | AI Pipeline + DE    | Exact URL, request format, response format, "not found" behavior               | Before AI Pipeline Task 3             |
-| 5 | Final response JSON schema       | Backend + Frontend  | Exact field names, verdict enum values, sources array structure                | Before any UI code is written         |
+| 3 | Credibility score threshold      | AI Pipeline + DE    | Currently 0.50 (AI Pipeline default). DE's seeded data must align.             | Before DE endpoint goes live          |
+| 4 | `/credibility` endpoint schema   | AI Pipeline + DE    | Exact URL, request format, response format, "not found" behavior               | Before AI Pipeline cuts over from JSON to live endpoint |
+| 5 | Final response JSON schema       | Backend + Frontend  | Exact field names, verdict enum values, sources array structure (now including `published_at`) | Before any UI code is written |
 | 6 | Backend URL configuration        | Frontend + Backend  | Local dev URL (`http://localhost:8000`); how it is configured in the extension | Before Frontend Task 3                |
-| 7 | API keys in Docker               | Backend + DE        | Variable names in `.env`; which service owns key injection                     | Before Docker Compose is finalized    |
+| 7 | API keys in Docker               | Backend + DE        | Variable names in `.env`; which service owns key injection (AI Pipeline loads its own) | Before Docker Compose is finalized    |
 | 8 | Log schema                       | All roles           | JSON structure for log entries; which fields are mandatory                     | Before any service is built           |
 
-> **Highest-risk dependency: #1 (Embedding model selection).** If Backend and DE implement independently with different models, the cache will never produce a valid hit. This is the one agreement that must happen first, before any code.
+> **Highest-risk dependency: #1 (Embedding model selection).** If Backend and DE implement independently with different models, the cache will never produce a valid hit. This is the one agreement that must happen first when Qdrant work begins.
 
 ---
 
@@ -685,21 +803,24 @@ These tasks must be completed before the integration phase. Parallel work is pos
 
 Most work in Phase 2 can proceed in parallel. Cross-role dependencies are highlighted.
 
-| Task                                  | Role         | Depends On                       | Can Run In Parallel With   |
-| ------------------------------------- | ------------ | -------------------------------- | -------------------------- |
-| Query generation function             | AI Pipeline  | Phase 0                          | All Phase 2 tasks          |
-| Serper search integration             | AI Pipeline  | Phase 0 (API key)                | Query generation           |
-| Credibility filtering                 | AI Pipeline  | DE credibility endpoint (Phase 1)| Fetch logic                |
-| Content fetching                      | AI Pipeline  | Phase 0                          | Filtering logic            |
-| LLM analysis + verdict synthesis      | AI Pipeline  | Content fetching                 | —                          |
-| Cache check logic                     | Backend      | Qdrant ready (Phase 1)           | AI Pipeline logic          |
-| AI Pipeline orchestration in Backend  | Backend      | AI Pipeline complete             | —                          |
-| Text highlight detection              | Frontend     | Extension scaffold               | All other Frontend tasks   |
-| Icon display                          | Frontend     | Highlight detection              | Backend request logic      |
-| Loading state panel                   | Frontend     | Extension scaffold               | Icon display               |
-| Result display panel                  | Frontend     | Final JSON schema agreed         | Loading state              |
+| Task                                  | Role         | Depends On                       | Status      |
+| ------------------------------------- | ------------ | -------------------------------- | ----------- |
+| Preprocessing (language normalization)| AI Pipeline  | Phase 0                          | ✅ Done (Step 8) |
+| Query generation function             | AI Pipeline  | Preprocessing                    | ✅ Done     |
+| Serper search integration             | AI Pipeline  | Phase 0 (API key)                | ✅ Done     |
+| Credibility filtering                 | AI Pipeline  | DE credibility endpoint (Phase 1) | ✅ Done (interim JSON; will cut over to DE endpoint) |
+| Content fetching                      | AI Pipeline  | Phase 0                          | ✅ Done     |
+| LLM analysis + verdict synthesis      | AI Pipeline  | Content fetching                 | ✅ Done     |
+| Public `analyze()` entry point        | AI Pipeline  | All sub-stages                   | ✅ Done (Step 8) |
+| Interim disk cache                    | AI Pipeline  | Synthesizer                      | ✅ Done (to be replaced) |
+| Cache check logic                     | Backend      | Qdrant ready (Phase 1)           | Pending     |
+| AI Pipeline orchestration in Backend  | Backend      | AI Pipeline complete             | Pending — *unblocked* |
+| Text highlight detection              | Frontend     | Extension scaffold               | Pending     |
+| Icon display                          | Frontend     | Highlight detection              | Pending     |
+| Loading state panel                   | Frontend     | Extension scaffold               | Pending     |
+| Result display panel                  | Frontend     | Final JSON schema agreed         | Pending     |
 
-**Phase 2 exit condition:** Each role has a working, tested unit in isolation. AI Pipeline returns a valid `Verdict` from a test input. Backend `/analyze` calls the pipeline and returns a response. Extension sends a request and renders a response.
+**Phase 2 exit condition:** Each role has a working, tested unit in isolation. ✅ AI Pipeline complete and tested end-to-end. Backend `/analyze` calls the pipeline and returns a response (pending). Extension sends a request and renders a response (pending).
 
 ---
 
@@ -707,9 +828,9 @@ Most work in Phase 2 can proceed in parallel. Cross-role dependencies are highli
 
 All roles integrate in this strict order:
 
-1. **DE ↔ AI Pipeline:** AI Pipeline queries the live credibility endpoint. Verify filtering works end-to-end.
-2. **AI Pipeline ↔ Backend:** Backend calls the full pipeline module. Verify verdict flows through.
-3. **Backend ↔ DE Cache:** Backend stores and retrieves results via Qdrant. Verify cache hit path.
+1. **DE ↔ AI Pipeline:** AI Pipeline cuts over from the bundled MBFC JSON to the live `/credibility` endpoint. Single change in `credibility_filter._load_db()`.
+2. **AI Pipeline ↔ Backend:** Backend imports `ai_core.analyze`. Verify verdict flows through.
+3. **Backend ↔ DE Cache:** Backend stores and retrieves results via Qdrant. At this point, the in-process disk cache in `ai_core` is removed (or kept disabled).
 4. **Backend ↔ Frontend:** Extension sends a real request to the running Backend. Verify full flow from highlight to rendered panel.
 
 **Phase 3 exit condition:** A complete end-to-end test — highlight text on VnExpress, click icon, receive verdict in panel — works on at least one real article. Cache hit path verified (second request for same text returns in < 1 second).
@@ -727,27 +848,38 @@ All roles integrate in this strict order:
 
 # 5. Appendix — Data Models
 
-## `Verdict` (AI Pipeline output / Backend response)
+> **Implementation note:** The AI Pipeline uses **Pydantic** models (not dataclasses). Field shapes match this table; access is via attribute (`result.verdict`) or `.model_dump()` for JSON serialization.
 
-| Field         | Type          | Notes                                  |
-| ------------- | ------------- | -------------------------------------- |
-| `verdict`     | string        | `TRUE` / `FALSE` / `UNVERIFIED` / `NOT_SURE` |
-| `explanation` | string        | Free text, max 500 chars               |
-| `sources`     | list[Source]  | See Source model below                 |
-| `confidence`  | string        | `HIGH` / `MEDIUM` / `LOW`              |
-| `cached`      | boolean       | `true` if served from Qdrant cache     |
+## `AnalysisResult` (AI Pipeline output → Backend response)
+
+| Field         | Type            | Notes                                  |
+| ------------- | --------------- | -------------------------------------- |
+| `verdict`     | `Verdict` enum  | `TRUE` / `FALSE` / `UNVERIFIED` / `NOT_SURE` |
+| `explanation` | string          | Free text, max 500 chars               |
+| `sources`     | `List[Source]`  | See Source model below                 |
+| `confidence`  | `ConfidenceLevel` enum | `HIGH` / `MEDIUM` / `LOW`        |
+| `cached`      | boolean         | `true` if served from cache            |
 
 ## `Source`
 
-| Field               | Type   | Notes                                      |
-| ------------------- | ------ | ------------------------------------------ |
-| `url`               | string | Full URL                                   |
-| `domain`            | string | e.g. `vnexpress.net`                       |
-| `credibility_score` | float  | 0.0 – 1.0                                  |
-| `title`             | string | Article headline                           |
-| `stance`            | string | `SUPPORTS` / `CONTRADICTS` / `NEUTRAL`     |
+| Field               | Type             | Notes                                      |
+| ------------------- | ---------------- | ------------------------------------------ |
+| `url`               | string           | Full URL                                   |
+| `domain`            | string           | e.g. `vnexpress.net`                       |
+| `title`             | string           | Article headline                           |
+| `credibility_score` | float            | 0.0 – 1.0                                  |
+| `stance`            | `Stance` enum    | `SUPPORTS` / `CONTRADICTS` / `NEUTRAL`     |
+| `published_at`      | `datetime` \| `None` | UTC; null if not extractable           |
 
-## `CacheRecord` (Qdrant)
+## Intermediate pipeline types (internal to AI Pipeline)
+
+These are not exposed to Backend, but documented for traceability:
+
+- `SearchResult` — raw search result (url, title, snippet, domain)
+- `ScoredResult` — SearchResult + credibility_score (after filtering)
+- `FetchedArticle` — ScoredResult + body + published_at (after fetching)
+
+## `CacheRecord` (Qdrant — when delivered)
 
 | Field         | Type        | Notes                                    |
 | ------------- | ----------- | ---------------------------------------- |
@@ -774,7 +906,7 @@ All roles integrate in this strict order:
 | `id`               | UUID            | Unique log entry                            |
 | `input_hash`       | string          | SHA-256 of input text                       |
 | `timestamp`        | ISO 8601        | Request time                                |
-| `steps_completed`  | string[]        | e.g. `[search, filter, fetch, llm]`         |
+| `steps_completed`  | string[]        | e.g. `[preprocess, search, filter, fetch, llm]` |
 | `verdict`          | string          | Final verdict                               |
 | `error_stage`      | string \| null  | Stage where failure occurred                |
 | `error_message`    | string \| null  | Error detail                                |
@@ -782,5 +914,5 @@ All roles integrate in this strict order:
 
 ---
 
-*Version 1.0 — Specification phase. No code written yet.*
-*All numeric thresholds (similarity, credibility score, latency targets) are initial proposals — to be confirmed by the team in Phase 0.*
+*Version 1.1 — Updated 2026-05-21 to reflect AI Pipeline implementation through Step 8.*
+*All numeric thresholds (similarity, credibility score, latency targets) remain initial proposals — to be confirmed by the team in Phase 0 for the remaining stages.*

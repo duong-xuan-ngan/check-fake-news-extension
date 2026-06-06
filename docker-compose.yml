@@ -1,7 +1,6 @@
 services:
-
   postgres:
-    image: postgres:18.4
+    image: postgres:17-alpine
     env_file: .env
     environment:
       POSTGRES_DB: ${POSTGRES_DB}
@@ -9,18 +8,19 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - ./de/init.sql:/docker-entrypoint-initdb.d/init.sql
-      - pg_data:/var/lib/postgresql
+      - pg_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
-      interval: 5s
-      timeout: 5s
+      # SIMPLIFIED: Just check if postgres is ready under the specified user
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER}"]
+      interval: 3s
+      timeout: 3s
       retries: 5
 
   redis:
-    image: redis:7
+    image: redis:7-alpine
     ports:
       - "6379:6379"
-  
+
   qdrant:
     image: qdrant/qdrant:latest
     ports:
@@ -28,8 +28,20 @@ services:
     volumes:
       - qdrant_data:/qdrant/storage
 
+  backend:
+    build:
+      context: ./fn-extension-backend
+      dockerfile: Dockerfile
+    env_file: .env
+    ports:
+      - "8000:8000"
+    depends_on:
+      - de-api
+
   de-api:
-    build: ./de
+    build:
+      context: ./de
+      dockerfile: Dockerfile
     env_file: .env
     depends_on:
       postgres:
@@ -39,7 +51,7 @@ services:
     ports:
       - "8001:8001"
     volumes:
-      - ./data:/app/../data
+      - ./data:/data
 
 volumes:
   pg_data:

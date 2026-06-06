@@ -39,12 +39,14 @@ def cache_lookup(payload: dict):
 
     try:
         client = get_qdrant()
-        results = client.search(
+        # Use query_points (modern API) instead of search
+        results = client.query_points(
             collection_name=COLLECTION,
-            query_vector=embedding,
+            query=embedding,
             limit=1,
             score_threshold=SIMILARITY_THRESHOLD,
-        )
+        ).points
+        
         if results:
             return {"hit": True, "result": results[0].payload}
         return {"hit": False}
@@ -56,10 +58,10 @@ def cache_lookup(payload: dict):
 @app.post("/cache/store")
 def cache_store(payload: dict):
     """
-    Input:  { "embedding": [...], "verdict": "...", "explanation": "...", "sources": [...] }
+    Input:  { "embedding": [...], "verdict": "...", "explanation": "...", "sources": [...], ... }
     Output: { "status": "ok" }
     """
-    embedding = payload.get("embedding")
+    embedding = payload.pop("embedding", None)
     if not embedding:
         return {"status": "error", "reason": "missing embedding"}
 
@@ -70,12 +72,7 @@ def cache_store(payload: dict):
             points=[PointStruct(
                 id=str(uuid.uuid4()),
                 vector=embedding,
-                payload={
-                    "verdict":     payload.get("verdict"),
-                    "explanation": payload.get("explanation"),
-                    "sources":     payload.get("sources"),
-                    "cached":      True,
-                }
+                payload=payload
             )]
         )
         return {"status": "ok"}

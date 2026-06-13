@@ -2,8 +2,8 @@
 
 > **Owner:** Ngan (AI Pipeline role)
 > **Project:** Fake News Detector Browser Extension
-> **Last updated:** 2026-05-21
-> **Status:** Step 8 complete (`analyze()` integration, preprocessor lift-out, disk cache). Hash-based cache works but does not survive LLM-translation non-determinism — to be replaced by a Qdrant vector cache later. Pipeline functionally correct end-to-end.
+> **Last updated:** 2026-06-04
+> **Status:** Step 8 complete (`analyze()` integration, preprocessor lift-out, disk cache). Hash-based cache works but does not survive LLM-translation non-determinism — to be replaced by a Qdrant vector cache later. Pipeline functionally correct end-to-end. Deployment architecture (AWS) drafted in a learning session on 2026-06-04 — see "Deployment architecture (AWS)" section below.
 
 ---
 
@@ -143,6 +143,77 @@ analyze(text: str) -> AnalysisResult
 
 ---
 
+## Deployment architecture (AWS)
+
+> **Session date:** 2026-06-04
+> **Nature of this section:** This is a *learning + design* session, not implementation. Nothing here is built yet. Goal was twofold: (B) get the project onto a footing where it could serve real users, and (C) understand *why* each AWS service is chosen — Ngan reasoned through each decision via Socratic Q&A rather than receiving a service list.
+> **Artifact produced:** `fake_news_aws_architecture.drawio` (layered diagram, draw.io format). Not committed to repo yet — currently in downloads. Colour code: green = MVP (build now), dashed grey = Phase 2 (later), light grey = external third-party.
+
+### The actual problem AWS solves (reasoned, not assumed)
+
+The starting realization: today the whole system runs locally as **one FastAPI process on one machine**, and `analyze()` takes ~15–20s per call. The non-obvious chain of reasoning:
+
+- One process handles one slow request at a time. The pipeline makes **blocking** HTTP calls (Serper, newspaper3k, OpenRouter), so even `async` FastAPI can't rescue throughput — the blocking calls hold the worker.
+- Under load (e.g. 500 simultaneous users) a single machine either crawls, runs out of memory, or trips Serper/OpenRouter rate limits.
+- So the real problems are not "put it on a server" — they are: **(1) compute that runs many pipelines at once, (2) scaling up and down with demand without paying for peak 24/7, (3) caching to avoid recomputing the same claim, (4) keeping API keys safe.**
+
+### Latency: what's a code fix vs an infra fix (important distinction)
+
+Two slow stages, and they are slow for *different* reasons — and the fix is different for each:
+
+- **`fetcher`** — slow because it fetches 3 articles **sequentially** (~3–8s). This is a **code fix, not an AWS problem**: `asyncio.gather` to fetch in parallel turns 3×slow into ~1×slow. Already flagged in §7 of `SOLUTION_ARCHITECTURE.md` as "parallel fetching".
+- **`synthesizer`** — slow because the LLM has to read ~9000 chars of evidence and reason (~5–10s). **Cannot be made faster** — bottlenecked by the LLM provider. Caching is the only lever.
+
+General lesson logged: *slow-because-of-sequential-code* → fix in code; *slow-because-of-external-dependency* → cache; *expensive-because-of-scale* → cloud architecture. Don't reach for infra to fix a code problem.
+
+### Streaming vs concurrency — and why it changes the AWS shortlist
+
+Ngan raised the eventual goal of a **streaming pipeline (incremental processing)** — i.e. each stage emits output into the next as soon as it's ready (Interpretation B), as opposed to streaming the *verdict tokens* back to the UI (Interpretation A). Key outcome of the discussion:
+
+- **Streaming pipeline (B)** would push toward **Kinesis / EventBridge** (real-time event streams between stages).
+- **Concurrency (just parallelizing the fetcher)** needs **nothing from AWS** — pure code change inside the existing Lambda.
+- The current synthesizer takes the *full* `List[FetchedArticle]` in one call, so it **does not support incremental input** — streaming would require redesigning it first.
+- **Decision: streaming is out of scope for the MVP.** Don't provision streaming infra (no Kinesis/EventBridge) for a problem we don't have yet. Revisit only if/when the synthesizer is redesigned for incremental input.
+
+### Service-by-service decisions (the why, not just the what)
+
+| Problem | AWS service chosen | Why this one (reasoning from the session) |
+|---|---|---|
+| Backend needs to run somewhere | **AWS Lambda** | Serverless: pay per request, not 24/7. Auto-scales (AWS spins up N parallel instances under load). No server to patch/SSH/babysit. Pipeline is ~15–20s — far under Lambda's 15-min ceiling, so the timeout is a non-issue. Only real concern is cold-start (~1–3s), acceptable for a fact-checker. |
+| 500 users at once | **Lambda (built-in)** | Parallel instances are automatic — no separate autoscaling service needed at this stage. |
+| Stable public entry point + protection | **API Gateway** | Sits *in front* of Lambda. Gives (1) rate limiting — stops one client burning cost + tripping Serper/OpenRouter limits; (2) request validation — reject a 50MB body before Lambda ever wakes; (3) a stable, clean URL instead of Lambda's ugly changing one; (4) a place to enforce auth (JWT check) later. **Corrected misconception:** knowing the Lambda URL does *not* let an attacker modify code — code only changes via AWS credentials. The gateway's value is operational control, not URL hiding. |
+| MBFC data must persist + be shared across instances | **S3** | On Lambda the local disk is **ephemeral** — `data/cache.json` / `mbfc_credibility.json` vanish when the instance shuts down, and 500 instances each have an isolated disk. MBFC data is just a domain→float **lookup table** that rarely changes — a *file*, not a database. S3 is a shared file store all Lambda instances read on startup. **PostgreSQL would be massively over-engineered** for a read-only key→value lookup ("a truck to carry one backpack"). |
+| Embedding cache (semantic dedup) | **Qdrant** (Docker on EC2, or Qdrant Cloud) | Already the Step 8 plan. Vector similarity is robust to LLM-translation jitter (the exact problem the hash cache can't solve) and enables paraphrase/cross-language dedup. AWS-native alternative would be OpenSearch w/ vector search, but Qdrant is simpler for this use case. |
+| User accounts, query history, analytics (Phase 2) | **RDS (PostgreSQL)** | *This* is genuinely relational (User → has many → Queries → has one → AnalysisResult) and grows over time — the real justification for a managed relational DB. Managed = AWS handles backups/patches/availability. |
+| Sign up / sign in (Phase 2) | **Cognito** | Don't build auth from scratch — password hashing, sessions, forgot-password, token security is weeks of work and a security minefield. Cognito does sign-up/sign-in, JWT, and social login (Google/Facebook) out of the box and plugs into API Gateway. Deferred: for the MVP the AI pipeline is the core value; auth is plumbing. |
+
+### Why the ephemeral-disk point is the crux
+
+The single most important infra realization of the session: **Lambda is stateless and ephemeral.** A function that writes a file to disk loses it on shutdown, and parallel instances don't share disk. This is *why* the disk cache and the local MBFC JSON can't simply "come along" to Lambda — both have to move to external, shared stores (Qdrant and S3 respectively). It also re-confirms the Step 8 decision to move caching out of the pipeline process.
+
+### Critical path
+
+Ngan correctly identified **Lambda as the critical path** — every other service is only reachable *through* it. Practical consequence flagged: the real next step is **not AWS at all** — `fn-extension-backend/` currently contains only a venv (no `main.py`, no `/analyze` route). The backend has to be **built first**, then deployed to Lambda.
+
+### How FastAPI actually runs on Lambda (deployment note for later)
+
+- **Chosen approach: `Mangum` adapter.** Two lines (`from mangum import Mangum; handler = Mangum(app)`) translate Lambda's event format into ASGI for FastAPI. Battle-tested for FastAPI+Lambda, skips Docker/ECR entirely. Right call because the pipeline is pure Python with no exotic system deps.
+- **Alternative (not chosen now): container image on ECR** run by Lambda — more control, more setup. Revisit only if system dependencies demand it.
+
+### Phasing
+
+- **MVP (build now, green in diagram):** API Gateway → Lambda (FastAPI + ai_core via Mangum) → S3 (MBFC) + Qdrant (cache) + external APIs (Serper, OpenRouter, article sites).
+- **Phase 2 (dashed grey in diagram):** Cognito (auth) wired into API Gateway, RDS (users/history/analytics).
+
+### Open items / deliberately deferred
+
+- **Diagram accuracy nit (known):** in the current `.drawio` layout the external-API arrows visually descend from the storage row (S3/Qdrant) rather than from Lambda directly — a layout compromise to avoid long crossing lines. It is *technically* the AI Pipeline (inside Lambda) that calls Serper/OpenRouter/article sites. Re-route directly from Lambda if strict accuracy is wanted for presentation.
+- Streaming/incremental pipeline (Kinesis/EventBridge) — out of scope until synthesizer supports incremental input.
+- Async/parallel fetcher — a pure code change, independent of AWS; do it regardless.
+- `.drawio` artifact not yet committed to the repo.
+
+---
+
 ## Known limitations
 
 - **Multi-claim posts** — pipeline collapses long multi-claim text into a single search query and verifies the main thrust. Sub-claims not individually checked. v2 scope: atomic-claim decomposition.
@@ -160,6 +231,8 @@ Two viable next directions. Pick based on what's blocking other team members:
 ### Option A — Backend integration
 
 Connect `analyze()` to the FastAPI endpoint in `fn-extension-backend/`. Verify the full extension → backend → ai_core → response loop works. This is what unblocks the rest of the team end-to-end.
+
+> **AWS note (2026-06-04):** this is also the literal prerequisite for the entire AWS plan above — the backend (`main.py` + `/analyze` route) does not exist yet (only a venv in `fn-extension-backend/`). Build it here, then it's what gets wrapped with Mangum and deployed to Lambda.
 
 ### Option B — Qdrant vector cache
 
@@ -252,3 +325,6 @@ print(result_final.model_dump_json(indent=2))
 12. **Defense in depth for structured output** — schema enums + prompt format instructions + API `response_format` mode. Each layer independent.
 13. **Lift transformations out of judgment stages.** Translation lives in `preprocessor`, not `query_builder`. Each stage does one transformation cleanly. (Step 8.)
 14. **Don't hash through non-deterministic stages.** If an LLM call sits between the raw input and the cache key, repeat-cache-hits are unreliable. Hash either the deterministic input (raw text) or use a similarity-tolerant store (vector DB). (Step 8 — open lesson, to be applied in Step 9.)
+15. **Don't provision infra for problems you don't have.** Streaming-pipeline infra (Kinesis/EventBridge) was rejected for the MVP because the synthesizer doesn't support incremental input yet. Match the architecture to the problem in front of you, not the one you might have later. (AWS session, 2026-06-04.)
+16. **Separate code-fixes from infra-fixes.** Slow-because-sequential → fix in code (async fetcher); slow-because-external-dependency → cache; expensive-because-scale → cloud. Don't buy infrastructure to paper over a code problem. (AWS session, 2026-06-04.)
+17. **Stateless compute can't hold state.** Lambda's ephemeral disk is why both the cache and the MBFC file must live in external shared stores (Qdrant, S3). Any file a serverless function writes locally is gone on shutdown and invisible to sibling instances. (AWS session, 2026-06-04.)

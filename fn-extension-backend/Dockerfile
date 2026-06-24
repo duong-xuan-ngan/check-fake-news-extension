@@ -1,5 +1,5 @@
 # 1. Start with the official standard Python slim image (glibc compatible)
-FROM python:3.11-slim
+FROM python:3.13-slim
 
 # 2. Grab the pre-compiled uv binary from the official Astral image
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/

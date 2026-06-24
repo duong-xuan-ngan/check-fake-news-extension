@@ -24,3 +24,7 @@ __pycache__/
 *$py.class
 .pytest_cache/
 node_modules/
+.agent
+.windsurf/
+docs/
+venv/

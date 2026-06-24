@@ -17,3 +17,12 @@ dependencies = [
     "sentence-transformers>=5.5.1",
     "uvicorn>=0.42.0",
 ]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+torchvision = { index = "pytorch-cpu" }

@@ -2,12 +2,20 @@
 import os
 import requests
 from typing import Optional
-from .schema import AnalysisResult
+from .schema import AnalysisResult, ConfidenceLevel, Verdict
 
 DE_API_URL = os.getenv("DE_API_URL", "http://de-api:8001")
 
 # We lazily load the model so it doesn't block fast startup if not needed immediately
 _embed_model = None
+
+
+def _is_insufficient_evidence(result: AnalysisResult) -> bool:
+    return (
+        result.verdict == Verdict.NOT_SURE
+        and result.confidence == ConfidenceLevel.LOW
+        and not result.sources
+    )
 
 def _get_embedding(text: str) -> list[float]:
     global _embed_model
@@ -32,6 +40,9 @@ def get(english_claim: str) -> Optional[AnalysisResult]:
             if data.get("hit"):
                 result_payload = data["result"]
                 result = AnalysisResult(**result_payload)
+                if _is_insufficient_evidence(result):
+                    print("[cache] Ignoring cached insufficient-evidence result.")
+                    return None
                 result.cached = True
                 print("[cache] Qdrant Hit!")
                 return result
@@ -41,7 +52,7 @@ def get(english_claim: str) -> Optional[AnalysisResult]:
 
 def set(english_claim: str, result: AnalysisResult) -> None:
     """Store a result via vector embedding."""
-    if result.cached:
+    if result.cached or _is_insufficient_evidence(result):
         return
 
     try:

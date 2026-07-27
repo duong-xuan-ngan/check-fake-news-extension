@@ -34,3 +34,13 @@ Create a production build with:
 ```bash
 npm run build
 ```
+
+Create the static build used by GitHub Pages with:
+
+```bash
+npm run build:github
+```
+
+The repository workflow publishes the `out/` directory to:
+
+`https://duong-xuan-ngan.github.io/check-fake-news-extension/`

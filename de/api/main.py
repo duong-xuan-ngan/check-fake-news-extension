@@ -83,6 +83,11 @@ def cache_store(payload: dict):
 
 @app.get("/credibility")
 def get_credibility(domain: str):
+    """
+    status:
+        "found"     — domain exists in `sources`; credibility_score is meaningful
+        "not_found" — domain has no row; credibility_score is null, caller decides policy
+    """
     conn = get_conn()
     cur = conn.cursor()
 
@@ -96,12 +101,12 @@ def get_credibility(domain: str):
         if row:
             cur.close()
             conn.close()
-            return {"credibility_score": row[0], "category": row[1]}
+            return {"credibility_score": row[0], "category": row[1], "status": "found"}
 
     cur.close()
     conn.close()
-    # Not found — return neutral score (matches credibility_filter.py behavior)
-    return {"credibility_score": 0.5, "category": "unknown"}
+    # Not found — let the caller decide how to treat an unscored domain.
+    return {"credibility_score": None, "category": "unknown", "status": "not_found"}
 
 
 @app.post("/logs")

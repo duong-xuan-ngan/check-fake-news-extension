@@ -6,18 +6,43 @@ from ..schema import SearchResult, ScoredResult
 
 CREDIBILITY_THRESHOLD = 0.5
 DE_API_URL = os.getenv("DE_API_URL", "http://de-api:8001")
+DE_API_TIMEOUT = 2       # seconds, per attempt
+DE_API_RETRIES = 1       # bounded: this is a synchronous request the user is waiting on
 
-def lookup_score(domain: str) -> Optional[float]:
-    """Fetch credibility score from DE API."""
+def _request_credibility(domain: str) -> Optional[dict]:
+    """Single attempt against DE API. Returns parsed JSON, or None on any failure."""
     try:
-        resp = requests.get(f"{DE_API_URL}/credibility", params={"domain": domain}, timeout=2)
+        resp = requests.get(f"{DE_API_URL}/credibility", params={"domain": domain}, timeout=DE_API_TIMEOUT)
         if resp.status_code == 200:
-            data = resp.json()
-            return data.get("credibility_score")
+            return resp.json()
     except Exception as e:
         print(f"[credibility_filter] API lookup failed for {domain}: {e}")
-    # Return neutral score on failure, matching DE API default
-    return 0.5
+    return None
+
+def lookup_score(domain: str) -> Optional[float]:
+    """Fetch credibility score from DE API.
+
+    Fails closed in both cases the caller should reject:
+      - domain not in `sources` (status="not_found")
+      - DE API unreachable after retry
+    Returns None for either case; filter_credible treats None as "exclude".
+    """
+    data = _request_credibility(domain)
+    for _ in range(DE_API_RETRIES):
+        if data is not None:
+            break
+        data = _request_credibility(domain)
+
+    if data is None:
+        # DE API unreachable after retry — fail closed, don't silently admit at 0.5.
+        print(f"[credibility_filter] DE API unreachable for {domain} after retry, excluding")
+        return None
+
+    if data.get("status") == "not_found":
+        # Genuinely unscored domain — fail closed. (Logging for later review comes later.)
+        return None
+
+    return data.get("credibility_score")
 
 def filter_credible(results: List[SearchResult]) -> List[ScoredResult]:
     """Keep only results whose domain clears CREDIBILITY_THRESHOLD.

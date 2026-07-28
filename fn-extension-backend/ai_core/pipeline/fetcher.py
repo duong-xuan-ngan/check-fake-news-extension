@@ -12,6 +12,7 @@ Install deps if needed:
 """
 import json
 import requests
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from typing import List, Optional, Tuple
 from bs4 import BeautifulSoup
@@ -22,6 +23,7 @@ from ..schema import ScoredResult, FetchedArticle
 MIN_BODY_LENGTH = 150   # ~3-4 sentences; shorter bodies are skipped
 MAX_BODY_LENGTH = 3000  # truncation limit passed to LLM
 REQUEST_TIMEOUT = 8     # seconds per article
+MAX_WORKERS = 8         # cap on concurrent article fetches
 
 # Meta tags to check for publication date, in order of reliability.
 _DATE_META_TAGS = [
@@ -172,11 +174,24 @@ def _fetch_article(url: str) -> Tuple[Optional[str], Optional[datetime]]:
 def fetch_all(results: List[ScoredResult]) -> List[FetchedArticle]:
     """Fetch article bodies + publish dates. Skips results where body is empty or too short.
 
-    v1: sequential. v2 scope: asyncio / ThreadPoolExecutor for concurrency.
+    Fetches run concurrently — each article is up to three independent HTTP
+    requests (newspaper3k download, bs4 fallback, supplementary date scrape) at
+    REQUEST_TIMEOUT each, so serial execution made this the dominant stage.
+    Threads rather than asyncio: newspaper3k and `requests` are both blocking.
+
+    Output preserves input order. That order is search rank, and the synthesizer
+    numbers its evidence block from it — completion order would make the prompt
+    (and therefore the verdict) nondeterministic across runs.
     """
+    if not results:
+        return []
+
+    # pool.map preserves input order regardless of completion order.
+    with ThreadPoolExecutor(max_workers=min(len(results), MAX_WORKERS)) as pool:
+        fetched = list(pool.map(lambda r: _fetch_article(r.url), results))
+
     output = []
-    for result in results:
-        body, publish_date = _fetch_article(result.url)
+    for result, (body, publish_date) in zip(results, fetched):
         if body is None:
             print(f"[fetcher] skipping {result.domain} — body too short or fetch failed")
             continue

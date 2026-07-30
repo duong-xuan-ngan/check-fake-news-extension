@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Fake News Checker",
+  "name": "VeriFact",
   "version": "0.1.0",
   "description": "Highlight text on any webpage to check for fake news using AI analysis.",
   "permissions": [
@@ -33,6 +33,6 @@
     "default_icon": {
       "128": "icons/icon128.png"
     },
-    "default_title": "Fake News Checker"
+    "default_title": "VeriFact"
   }
 }

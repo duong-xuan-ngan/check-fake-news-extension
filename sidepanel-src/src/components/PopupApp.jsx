@@ -42,15 +42,16 @@ const STANCE_CONFIG = {
 
 export default function PopupApp({ selectedText, onClose }) {
   const [activeTab, setActiveTab] = useState('analysis')
+  const [isTextExpanded, setIsTextExpanded] = useState(false)
   const [result, setResult] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
-  const hasFetched = useRef(false)
+  const previousText = useRef('')
 
   const handleAnalyze = useCallback(async () => {
-    if (!selectedText.trim() || hasFetched.current) return
-    hasFetched.current = true
+    if (!selectedText.trim() || selectedText === previousText.current) return
+    previousText.current = selectedText
     setLoading(true)
     setError(null)
     setResult(null)
@@ -75,14 +76,14 @@ export default function PopupApp({ selectedText, onClose }) {
   }, [handleAnalyze])
 
   return (
-    <div className="w-[400px] h-[500px] bg-slate-50 rounded-xl shadow-[0_20px_60px_-15px_rgba(0,0,0,0.4)] border border-slate-300 flex flex-col font-sans overflow-hidden ring-1 ring-black/5">
+    <div className="w-[400px] h-[500px] bg-slate-200/70 backdrop-blur-2xl rounded-xl shadow-[0_20px_60px_-15px_rgba(0,0,0,0.4)] border border-slate-300/80 flex flex-col font-sans overflow-hidden ring-1 ring-white/50">
       {/* Header */}
-      <header className="flex items-center justify-between px-4 py-3 bg-white border-b border-slate-100 shadow-sm z-10">
+      <header className="flex items-center justify-between px-4 py-3 bg-white/70 border-b border-white/50 shadow-sm z-10">
         <div className="flex items-center gap-2">
           <div className="text-blue-500 flex items-center justify-center bg-blue-50 p-1.5 rounded-lg">
             <ShieldCheck size={20} strokeWidth={2.5} />
           </div>
-          <h1 className="font-semibold text-slate-800 text-sm tracking-tight m-0 p-0">Fake News Checker</h1>
+          <h1 className="font-semibold text-slate-800 text-sm tracking-tight m-0 p-0">VeriFact</h1>
         </div>
         <button onClick={onClose} className="text-slate-400 hover:text-slate-600 transition-colors p-1 rounded-md hover:bg-slate-50 cursor-pointer border-none bg-transparent">
           <X size={18} />
@@ -125,7 +126,7 @@ export default function PopupApp({ selectedText, onClose }) {
         )}
 
         {!loading && !error && result && (
-          <div className="p-5 h-full box-border">
+          <div className="p-5 min-h-full box-border">
             {activeTab === 'analysis' && (
               <div className="space-y-5 animate-in fade-in duration-300">
                 {/* Verdict Badge */}
@@ -152,12 +153,21 @@ export default function PopupApp({ selectedText, onClose }) {
                 </div>
 
                 {/* Selected Text context */}
-                <div className="space-y-2 mt-5">
-                  <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider m-0">Analyzed Claim</h3>
+                <div className="mt-5">
+                  <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Analyzed Claim</h3>
                   <div className="bg-white p-3.5 rounded-lg border border-slate-200 shadow-sm">
-                    <p className="text-sm text-slate-600 italic line-clamp-4 leading-relaxed border-l-2 border-blue-400 pl-3 m-0">
+                    <p className={`text-sm text-slate-600 italic leading-relaxed border-l-2 border-blue-400 pl-3 m-0 ${isTextExpanded ? '' : 'line-clamp-4'}`}>
                       "{selectedText}"
                     </p>
+                    {selectedText.length > 250 && (
+                      <button 
+                        onClick={() => setIsTextExpanded(!isTextExpanded)}
+                        className="text-xs text-blue-500 font-semibold mt-2 hover:text-blue-700 transition-colors bg-transparent border-none outline-none shadow-none cursor-pointer p-0 hover:underline underline-offset-2"
+                        style={{ border: 'none', outline: 'none' }}
+                      >
+                        {isTextExpanded ? 'See less' : 'See more'}
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>

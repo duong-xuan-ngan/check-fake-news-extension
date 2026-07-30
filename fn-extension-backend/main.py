@@ -11,17 +11,10 @@ from ai_core.schema import AnalysisResult
 
 app = FastAPI()
 
-origins = [
-    "http://localhost:3000",
-    "http://localhost:5173",
-    "http://localhost:8001"
-    "chrome-extension://*",
-]
-
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )

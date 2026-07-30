@@ -123,7 +123,6 @@ function App() {
   const [result, setResult] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(null)
-  const [tooLong, setTooLong] = useState(false)
   const [loadingMessage, setLoadingMessage] = useState('')
   const [theme, setTheme] = useState(() => localStorage.getItem('fn-theme') || 'light')
   const loadingTimeoutRef = useRef(null)
@@ -139,12 +138,10 @@ function App() {
     const handleMessage = (message) => {
       if (message.type === 'TEXT_SELECTED' && message.text) {
         setSelectedText(message.text)
-        setTooLong(false)
         setResult(null)
         setError(null)
       } else if (message.type === 'SELECTION_TOO_LONG' && message.text) {
         setSelectedText(message.text)
-        setTooLong(true)
         setResult(null)
         setError(null)
       }
@@ -204,7 +201,6 @@ function App() {
     setSelectedText('')
     setResult(null)
     setError(null)
-    setTooLong(false)
   }
 
   const isOverLimit = selectedText.length > 2000
@@ -250,7 +246,6 @@ function App() {
             value={selectedText}
             onChange={(e) => {
               setSelectedText(e.target.value)
-              setTooLong(e.target.value.length > 2000)
             }}
             placeholder="Highlight text on any webpage to capture it here, or paste text manually..."
             rows={6}

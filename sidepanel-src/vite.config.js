@@ -8,11 +8,11 @@ export default defineConfig({
     outDir: '../extension',
     emptyOutDir: false,
     rollupOptions: {
-      input: 'index.html',
+      input: 'src/content.jsx',
       output: {
-        entryFileNames: 'assets/[name].js',
-        chunkFileNames: 'assets/[name].js',
-        assetFileNames: 'assets/[name].[ext]',
+        entryFileNames: 'content.js',
+        chunkFileNames: 'content-[hash].js',
+        assetFileNames: 'content.[ext]',
       },
     },
   },

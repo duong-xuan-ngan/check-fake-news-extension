@@ -5,16 +5,18 @@
   "description": "Highlight text on any webpage to check for fake news using AI analysis.",
   "permissions": [
     "activeTab",
-    "sidePanel",
     "contextMenus"
   ],
   "host_permissions": [
     "http://localhost:8000/*",
     "http://127.0.0.1:8000/*"
   ],
-  "side_panel": {
-    "default_path": "index.html"
-  },
+  "web_accessible_resources": [
+    {
+      "resources": ["assets/*", "icons/*", "content.css"],
+      "matches": ["<all_urls>"]
+    }
+  ],
   "background": {
     "service_worker": "background.js"
   },

@@ -40,12 +40,6 @@ const STANCE_CONFIG = {
   NEUTRAL: { color: 'text-slate-700', bg: 'bg-slate-100' },
 }
 
-function credBarColor(score) {
-  if (score >= 0.7) return 'bg-green-500'
-  if (score >= 0.5) return 'bg-amber-500'
-  return 'bg-red-500'
-}
-
 export default function PopupApp({ selectedText, onClose }) {
   const [activeTab, setActiveTab] = useState('analysis')
   const [result, setResult] = useState(null)
@@ -81,7 +75,7 @@ export default function PopupApp({ selectedText, onClose }) {
   }, [handleAnalyze])
 
   return (
-    <div className="w-[400px] h-[500px] bg-white rounded-xl shadow-[0_10px_40px_-10px_rgba(0,0,0,0.3)] border border-slate-200 flex flex-col font-sans overflow-hidden">
+    <div className="w-[400px] h-[500px] bg-slate-50 rounded-xl shadow-[0_20px_60px_-15px_rgba(0,0,0,0.4)] border border-slate-300 flex flex-col font-sans overflow-hidden ring-1 ring-black/5">
       {/* Header */}
       <header className="flex items-center justify-between px-4 py-3 bg-white border-b border-slate-100 shadow-sm z-10">
         <div className="flex items-center gap-2">
@@ -174,7 +168,6 @@ export default function PopupApp({ selectedText, onClose }) {
                 {result.sources && result.sources.length > 0 ? (
                   result.sources.map((source, i) => {
                     const stance = STANCE_CONFIG[source.stance] || STANCE_CONFIG.NEUTRAL
-                    const score = source.credibility_score ?? 0
                     
                     return (
                       <div key={i} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-shadow group mb-3">
@@ -187,22 +180,10 @@ export default function PopupApp({ selectedText, onClose }) {
                           </span>
                         </div>
                         
-                        <a href={source.url} target="_blank" rel="noopener noreferrer" className="block text-sm font-medium text-slate-800 mb-3 hover:text-blue-600 transition-colors group-hover:underline decoration-blue-300 underline-offset-2 no-underline">
+                        <a href={source.url} target="_blank" rel="noopener noreferrer" className="block text-sm font-medium text-slate-800 hover:text-blue-600 transition-colors group-hover:underline decoration-blue-300 underline-offset-2 no-underline">
                           {source.title}
                           <ExternalLink size={12} className="inline ml-1 mb-0.5 text-slate-400" />
                         </a>
-                        
-                        <div className="flex items-center gap-3 mt-3">
-                          <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                            <div 
-                              className={`h-full rounded-full ${credBarColor(score)}`}
-                              style={{ width: `${Math.round(score * 100)}%` }}
-                            />
-                          </div>
-                          <span className="text-xs font-semibold text-slate-500 w-10 text-right">
-                            {Math.round(score * 100)}%
-                          </span>
-                        </div>
                       </div>
                     )
                   })

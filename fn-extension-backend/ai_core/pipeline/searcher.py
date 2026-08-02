@@ -20,12 +20,18 @@ def search(query: str, top_k: int = 10) -> List[SearchResult]:
             "https://google.serper.dev/search",
             headers={"X-API-KEY": _API_KEY},
             json={"q": query, "num": top_k},
+            timeout=8,
         )
+        response.raise_for_status()
         results = []
         for item in response.json().get("organic", []):
-            domain = urlparse(item.get("link", "")).netloc.removeprefix("www.")
+            url = item.get("link", "")
+            parsed = urlparse(url)
+            if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+                continue
+            domain = parsed.hostname.lower().removeprefix("www.")
             results.append(SearchResult(
-                url=item.get("link", ""),
+                url=url,
                 title=item.get("title", ""),
                 snippet=item.get("snippet", ""),
                 domain=domain,

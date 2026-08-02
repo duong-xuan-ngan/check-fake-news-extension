@@ -92,13 +92,13 @@ analyze(text: str) -> AnalysisResult
 - API keys in `.env`, never hardcoded — three consequences of hardcoding: cost abuse, sensitive data exposure, attacker manipulation
 
 ### Step 5 — `credibility_filter.py`
-- Loads `data/mbfc_credibility.json` at import (built one-time via `scripts/build_mbfc.py` from MBFC raw CSV)
+- Loads the pinned `data/cred1_compact.json` risk dataset as a local fallback when DE is unavailable
 - `CREDIBILITY_THRESHOLD = 0.5` — domains below this are dropped
-- Subdomain fallback: `en.wikipedia.org` → looks up `wikipedia.org`
+- Normalizes URL/path aliases and tries progressively broader hostname suffixes
 - **Deduplicates by domain** — same domain only kept once (first result wins)
+- Calls DE's `/credibility/batch` endpoint first; newly discovered domains enter `source_candidates`
+- Unrated domains remain eligible as explicitly limited evidence; unknown never means trustworthy
 - Returns `List[ScoredResult]` — not `Source` because stance isn't known yet
-- Known MBFC quirk: `facebook.com`, `youtube.com` score 0.9 (rated as platforms, not publishers)
-- When DE delivers `/credibility` API: replace `_load_db()` with HTTP call, delete the JSON
 
 ### Step 6 — `fetcher.py`
 - Primary: `newspaper3k`. Fallback: `requests` + `BeautifulSoup` `<p>` extraction

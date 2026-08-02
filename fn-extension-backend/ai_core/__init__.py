@@ -21,9 +21,11 @@ Pipeline (sequential):
 from .schema import (
     AnalysisResult,
     ConfidenceLevel,
+    EvidenceStatus,
     FetchedArticle,
     SearchResult,
     Source,
+    RatingStatus,
     Stance,
     Verdict,
 )
@@ -34,9 +36,11 @@ __all__ = [
     "analyze",
     "AnalysisResult",
     "ConfidenceLevel",
+    "EvidenceStatus",
     "FetchedArticle",
     "SearchResult",
     "Source",
+    "RatingStatus",
     "Stance",
     "Verdict",
 ]
@@ -71,7 +75,7 @@ def analyze(text: str) -> AnalysisResult:
 
     # 4. Search → filter → fetch → synthesize
     results  = searcher.search(search_query)
-    scored   = credibility_filter.filter_credible(results)
+    scored   = credibility_filter.select_evidence(results)
     articles = fetcher.fetch_all(scored)
     result   = synthesizer.synthesize(english_claim, articles)
 

@@ -1,8 +1,103 @@
 import { useState, useEffect, useCallback } from 'react'
-import { ShieldCheck, Moon, Sun, PenLine, Search, CircleX, CircleCheck } from 'lucide-react'
+import {
+  AlertTriangle,
+  CircleCheck,
+  CircleX,
+  ExternalLink,
+  HelpCircle,
+  Moon,
+  PenLine,
+  Search,
+  ShieldCheck,
+  Sun,
+} from 'lucide-react'
 import './App.css'
 
 const API_BASE = 'http://localhost:8000'
+
+const verdictDetails = {
+  TRUE: { label: 'Supported', tone: 'positive', icon: CircleCheck },
+  FALSE: { label: 'Contradicted', tone: 'negative', icon: CircleX },
+  UNVERIFIED: { label: 'Not yet verified', tone: 'warning', icon: AlertTriangle },
+  NOT_SURE: { label: 'Not enough evidence', tone: 'neutral', icon: HelpCircle },
+}
+
+function SourceList({ sources = [] }) {
+  if (!sources.length) return null
+
+  return (
+    <div className="sources-block">
+      <h3>Evidence reviewed</h3>
+      <div className="source-list">
+        {sources.map((source) => (
+          <a
+            className="source-item"
+            href={source.url}
+            target="_blank"
+            rel="noreferrer"
+            key={`${source.domain}-${source.url}`}
+          >
+            <img
+              className="source-favicon"
+              src={`https://www.google.com/s2/favicons?domain=${encodeURIComponent(source.domain)}&sz=64`}
+              alt=""
+              onError={(event) => { event.currentTarget.style.visibility = 'hidden' }}
+            />
+            <span className="source-copy">
+              <span className="source-title">{source.title || source.domain}</span>
+              <span className="source-meta">
+                <span>{source.domain}</span>
+                <span className={`source-rating ${source.rating_status === 'UNRATED' ? 'unrated' : ''}`}>
+                  {source.rating_status === 'UNRATED'
+                    ? 'Unrated source'
+                    : `${Math.round((source.credibility_score || 0) * 100)}% source rating`}
+                </span>
+                <span className={`stance stance-${source.stance?.toLowerCase()}`}>
+                  {source.stance?.toLowerCase()}
+                </span>
+              </span>
+            </span>
+            <ExternalLink className="source-link-icon" size={14} />
+          </a>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function AnalysisResult({ result }) {
+  const details = verdictDetails[result.verdict] || verdictDetails.NOT_SURE
+  const VerdictIcon = details.icon
+  const limited = result.evidence_status === 'LIMITED_UNRATED'
+
+  return (
+    <section className="result-section" id="result-section">
+      <div className="section-header">
+        <span className="section-label">
+          <ShieldCheck size={14} />
+          Analysis Result
+        </span>
+      </div>
+      <div className={`result-card result-${details.tone}`}>
+        <div className="verdict-row">
+          <span className="verdict-icon"><VerdictIcon size={20} /></span>
+          <span>
+            <span className="verdict-label">{details.label}</span>
+            <span className="confidence-label">{result.confidence?.toLowerCase()} confidence</span>
+          </span>
+        </div>
+        <p className="result-explanation">{result.explanation}</p>
+        {limited && (
+          <div className="evidence-note">
+            <AlertTriangle size={15} />
+            <span>These sources have not been independently rated. This result is a lead, not a final fact-check.</span>
+          </div>
+        )}
+        <SourceList sources={result.sources} />
+      </div>
+    </section>
+  )
+}
 
 function App() {
   const [selectedText, setSelectedText] = useState('')
@@ -30,9 +125,10 @@ function App() {
     }
 
     // Chrome extension environment
-    if (typeof chrome !== 'undefined' && chrome.runtime?.onMessage) {
-      chrome.runtime.onMessage.addListener(handleMessage)
-      return () => chrome.runtime.onMessage.removeListener(handleMessage)
+    const chromeApi = globalThis.chrome
+    if (chromeApi?.runtime?.onMessage) {
+      chromeApi.runtime.onMessage.addListener(handleMessage)
+      return () => chromeApi.runtime.onMessage.removeListener(handleMessage)
     }
   }, [])
 
@@ -154,19 +250,7 @@ function App() {
         )}
 
         {/* Result */}
-        {result && (
-          <section className="result-section" id="result-section">
-            <div className="section-header">
-              <span className="section-label">
-                <CircleCheck size={14} />
-                Analysis Result
-              </span>
-            </div>
-            <div className="result-card">
-              <pre className="result-json">{JSON.stringify(result, null, 2)}</pre>
-            </div>
-          </section>
-        )}
+        {result && <AnalysisResult result={result} />}
       </main>
 
       {/* Footer */}

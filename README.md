@@ -24,6 +24,31 @@
 
 ---
 
+## Domain credibility data
+
+The active domain risk dataset is [CRED-1](https://github.com/aloth/cred-1),
+pinned at `v2026-07-28` and stored as `data/cred1_compact.json`. The upstream
+release contains 2,674 entries; URL/path aliases normalize to 2,635 unique
+hostnames locally. CRED-1 is versioned, reproducible, and licensed CC BY 4.0.
+
+CRED-1 is a negative-signal list. A missing domain is treated as **unrated**,
+not reliable. Known low-score domains are excluded from evidence, while unknown
+domains remain eligible with an explicit limited-evidence status and are added
+to the Data Engineering review queue. Manually reviewed Vietnamese domains
+remain authoritative overrides in `de/seed.py`.
+
+Refresh the pinned artifact with:
+
+```bash
+python scripts/update_cred1.py
+```
+
+The previous `mbfc_raw.csv` and `mbfc_credibility.json` files are legacy inputs
+and are no longer loaded or seeded. See `data/CRED1_ATTRIBUTION.md` for source,
+license, checksum, and interpretation notes.
+
+---
+
 # 1. System Specification
 
 Each stage below defines the agreed contract before any code is written. Every field is a team agreement, not a suggestion.
@@ -360,15 +385,15 @@ This section converts the specification into concrete, assigned tasks with clear
 ### Task 2 — Set up PostgreSQL: Source Credibility Database
 
 **Exact tasks:**
-- Create a `sources` table with fields: `domain`, `credibility_score`, `category`, `last_updated`.
-- Seed it with at least 50 Vietnamese news domains (VnExpress, Tuổi Trẻ, Thanh Niên, Dân Trí, etc.) with manually assigned credibility scores.
-- Supplement with MBFC data where available for international domains.
-- Expose a REST endpoint: `GET /credibility?domain=<domain>` → `{ credibility_score, category }`.
-- Handle the "domain not found" case explicitly (return neutral score 0.5).
+- Create a `sources` table with domain, score, category, provenance, version, and update metadata.
+- Seed the manually reviewed Vietnamese launch domains (VnExpress, Tuổi Trẻ, Thanh Niên, Dân Trí, etc.) as authoritative local overrides.
+- Supplement with the pinned CRED-1 negative-signal dataset for international domains.
+- Expose REST endpoints for single and batch credibility lookup, including rating provenance.
+- Handle the "domain not found" case explicitly (`credibility_score: null`, `rating_status: "unrated"`) and add it to the review queue.
 
 **Deliverable:** PostgreSQL running in Docker, seeded database, endpoint accessible at `http://db-api:8001/credibility` inside Docker network.
 
-**Definition of Done:** AI Pipeline can query any Vietnamese news domain and receive a score. At least 50 domains covered at launch.
+**Definition of Done:** AI Pipeline can distinguish rated from unrated domains, known high-risk domains are excluded, and unrated domains remain limited evidence pending review.
 
 ---
 

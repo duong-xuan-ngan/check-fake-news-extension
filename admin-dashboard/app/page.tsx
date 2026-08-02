@@ -38,9 +38,52 @@ const sourceRows = [
   { domain: "vnexpress.net", score: 0.85, category: "National News", checks: "1,842", updated: "Jul 26, 2026" },
   { domain: "tuoitre.vn", score: 0.85, category: "National News", checks: "1,291", updated: "Jul 26, 2026" },
   { domain: "vtv.vn", score: 0.8, category: "State Broadcast", checks: "975", updated: "Jul 25, 2026" },
-  { domain: "reuters.com", score: 0.92, category: "MBFC", checks: "823", updated: "Jul 25, 2026" },
+  { domain: "reuters.com", score: 0.92, category: "Manual / trusted", checks: "823", updated: "Jul 25, 2026" },
   { domain: "kenh14.vn", score: 0.6, category: "Entertainment", checks: "764", updated: "Jul 24, 2026" },
-  { domain: "tinhhoa.net", score: 0.2, category: "Low Credibility", checks: "311", updated: "Jul 24, 2026" },
+  { domain: "tinhhoa.net", score: 0.2, category: "Manual / high risk", checks: "311", updated: "Jul 24, 2026" },
+];
+
+const productSignals = [
+  {
+    label: "Highlights",
+    kind: "Usage",
+    value: "18,642",
+    change: "+14.2%",
+    note: "selected-text events",
+    icon: "✎",
+    tone: "blue",
+    points: [34, 42, 38, 49, 46, 57, 54, 68, 63, 74, 71, 82],
+  },
+  {
+    label: "Average rating",
+    kind: "Feedback",
+    value: "4.3 / 5",
+    change: "+0.2",
+    note: "286 star ratings",
+    icon: "★",
+    tone: "amber",
+    points: [61, 63, 62, 66, 65, 68, 70, 69, 72, 74, 75, 78],
+  },
+  {
+    label: "Extension uninstalls",
+    kind: "Lagging indicator",
+    value: "96",
+    change: "−8.6%",
+    note: "1.8% uninstall rate",
+    icon: "↘",
+    tone: "red",
+    points: [78, 76, 71, 74, 68, 65, 66, 61, 58, 55, 52, 49],
+  },
+  {
+    label: "7-day return rate",
+    kind: "Behavioral",
+    value: "41.7%",
+    change: "+3.4 pp",
+    note: "returning installations",
+    icon: "↻",
+    tone: "violet",
+    points: [42, 44, 48, 47, 51, 54, 55, 59, 61, 64, 66, 70],
+  },
 ];
 
 const databaseRows = [
@@ -81,6 +124,47 @@ function MetricCard({ label, value, trend, caption, icon, accent }: { label: str
       <div className="metric-foot">
         <span className={trend.startsWith("+") ? "positive" : trend === "Stable" ? "muted" : "negative"}>{trend}</span>
         <span>{caption}</span>
+      </div>
+    </Panel>
+  );
+}
+
+function SignalSparkline({ points }: { points: number[] }) {
+  const coordinates = points.map((point, index) => `${(index / (points.length - 1)) * 100},${100 - point}`).join(" ");
+  return (
+    <svg className="signal-sparkline" viewBox="0 0 100 52" preserveAspectRatio="none" aria-hidden="true">
+      <polyline points={coordinates} fill="none" vectorEffect="non-scaling-stroke" />
+    </svg>
+  );
+}
+
+function ProductSignals() {
+  return (
+    <Panel className="product-signals-panel">
+      <SectionHeader
+        title="Extension product signals"
+        subtitle="Usage, feedback, retention, and churn indicators for the selected reporting period"
+        action={<Badge tone="info">PREVIEW DATA</Badge>}
+      />
+      <div className="product-signal-grid">
+        {productSignals.map((signal) => (
+          <article className={`product-signal signal-${signal.tone}`} key={signal.label}>
+            <div className="signal-topline">
+              <span className="signal-icon">{signal.icon}</span>
+              <Badge>{signal.kind}</Badge>
+            </div>
+            <span className="signal-label">{signal.label}</span>
+            <div className="signal-value-row"><strong>{signal.value}</strong><span>{signal.change}</span></div>
+            <span className="signal-note">{signal.note}</span>
+            <SignalSparkline points={signal.points} />
+          </article>
+        ))}
+      </div>
+      <div className="signal-definitions">
+        <span><b>Highlights</b> count completed text selections.</span>
+        <span><b>Rating</b> is the mean submitted 1–5 star score.</span>
+        <span><b>Uninstall rate</b> is uninstall callbacks ÷ installs at period start.</span>
+        <span><b>Return rate</b> is prior active installs seen again within 7 days.</span>
       </div>
     </Panel>
   );
@@ -130,6 +214,7 @@ function Overview({ onNavigate }: { onNavigate: (tab: Tab) => void }) {
         <MetricCard label="Success rate" value="96.8%" trend="+1.1%" caption="completed checks" icon="✓" accent="green" />
         <MetricCard label="P95 latency" value="3.2s" trend="-0.4s" caption="faster this week" icon="↯" accent="amber" />
       </div>
+      <ProductSignals />
       <div className="overview-grid">
         <Panel className="volume-panel">
           <SectionHeader title="Analysis volume" subtitle="Daily fact-check requests over the last 14 days" action={<button className="text-button" onClick={() => onNavigate("Analyses")}>View all →</button>} />
@@ -241,9 +326,14 @@ function SourcesPage() {
   const [query, setQuery] = useState("");
   const rows = sourceRows.filter((row) => row.domain.includes(query.toLowerCase()));
   return (
-    <Panel>
+    <>
+      <div className="dataset-banner">
+        <div><span>◈</span><div><strong>CRED-1 risk signals active</strong><small>v2026-07-28 · 2,635 normalized domains · CC BY 4.0</small></div></div>
+        <p>Missing domains remain unrated and enter the review queue; absence never implies trust.</p>
+      </div>
+      <Panel>
       <div className="table-tools">
-        <label className="search"><span>⌕</span><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search 4,821 domains" /></label>
+        <label className="search"><span>⌕</span><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search 2,660 domains" /></label>
         <button className="primary-button">＋ Add source</button>
       </div>
       <div className="table-scroll">
@@ -259,7 +349,8 @@ function SourcesPage() {
           ))}</tbody>
         </table>
       </div>
-    </Panel>
+      </Panel>
+    </>
   );
 }
 
@@ -337,7 +428,7 @@ function DatabasePage() {
               <div><span className="crumb">PostgreSQL</span><b>/</b><select value={table} onChange={(e) => setTable(e.target.value)} aria-label="Select database table"><option>sources</option><option>pipeline_logs</option></select></div>
               <div><Badge tone="success">● Connected</Badge><button className="secondary-button">↻ Refresh</button><button className="secondary-button">⇩ Export CSV</button></div>
             </div>
-            <div className="schema-strip"><span><b>Table</b> public.{table}</span><span><b>Rows</b> {table === "sources" ? "4,821" : "12,481"}</span><span><b>Primary key</b> {table === "sources" ? "domain" : "id"}</span><span><b>Size</b> {table === "sources" ? "1.2 MB" : "8.6 MB"}</span></div>
+            <div className="schema-strip"><span><b>Table</b> public.{table}</span><span><b>Rows</b> {table === "sources" ? "2,660" : "12,481"}</span><span><b>Primary key</b> {table === "sources" ? "domain" : "id"}</span><span><b>Size</b> {table === "sources" ? "0.8 MB" : "8.6 MB"}</span></div>
             <div className="table-tools compact"><label className="search"><span>⌕</span><input placeholder="Filter rows..." /></label><button className="secondary-button">Columns</button><button className="secondary-button">Filters</button></div>
             {table === "sources" ? (
               <div className="table-scroll"><table className="db-table">
@@ -350,7 +441,7 @@ function DatabasePage() {
                 <tbody>{analyses.map((row, index) => <tr key={row.id}><td>{index + 1}</td><td><code>{row.id.toLowerCase()}</code></td><td><code>••••••••{(index + 18).toString(16)}af</code></td><td>{row.verdict}</td><td>{parseFloat(row.latency) * 1000}</td></tr>)}</tbody>
               </table></div>
             )}
-            <div className="table-footer"><span>Showing 1–6 of {table === "sources" ? "4,821" : "12,481"} rows</span><div><button disabled>‹</button><button className="active">1</button><button>2</button><button>›</button></div></div>
+            <div className="table-footer"><span>Showing 1–6 of {table === "sources" ? "2,660" : "12,481"} rows</span><div><button disabled>‹</button><button className="active">1</button><button>2</button><button>›</button></div></div>
           </>
         ) : (
           <div className="store-overview">

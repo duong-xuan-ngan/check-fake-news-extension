@@ -186,6 +186,7 @@ def fetch_all(results: List[ScoredResult]) -> List[FetchedArticle]:
             title=result.title,
             body=body,
             credibility_score=result.credibility_score,
+            rating_status=result.rating_status,
             published_at=publish_date,
         ))
     return output

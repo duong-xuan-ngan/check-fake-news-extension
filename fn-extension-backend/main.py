@@ -1,8 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from ai_core.schema import AnalysisRequest, CredibilityAnalysis, ConfidenceLevel
-from ai_core.prefilter import is_checkable_claim
-from ai_core.llm_service import evaluate_text
+from ai_core import analyze as analyze_text
 from pydantic import BaseModel
 app = FastAPI()
 
@@ -37,10 +35,6 @@ def health():
     return {"Service": "is up"}
 
 @app.post("/analyze")
-def analyze(data: AnalysisRequest):
-    # Access data via attributes
-    print(f"Received: {data.text}")
-    result = evaluate_text(data.text)
-    
-    return result
+def analyze(data: AnalyzeRequest):
+    return analyze_text(data.text)
     

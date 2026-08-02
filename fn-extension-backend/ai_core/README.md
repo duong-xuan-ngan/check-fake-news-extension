@@ -32,7 +32,7 @@ text
  → prefilter.is_checkable_claim    (cheap reject for non-claims)
  → pipeline.query_builder          (text → Serper query)
  → pipeline.searcher               (Serper API → SearchResult[])
- → pipeline.credibility_filter     (MBFC lookup, drop unknown/low domains)
+ → pipeline.credibility_filter     (DE ratings + CRED-1 risk fallback)
  → pipeline.fetcher                (Newspaper3k → article body)
  → pipeline.analyzer               (Gemini, retrieval-augmented)
  → pipeline.synthesizer            (Verdict + "Not sure" enforcement)
@@ -48,7 +48,7 @@ text
 | `prefilter.py`              | regex-based fast reject for non-claims |
 | `pipeline/query_builder.py` | text → search query |
 | `pipeline/searcher.py`      | Serper API client |
-| `pipeline/credibility_filter.py` | MBFC lookup; later swaps to DE's Postgres API |
+| `pipeline/credibility_filter.py` | DE batch ratings; CRED-1 fallback filters known high-risk domains while retaining unrated evidence |
 | `pipeline/fetcher.py`       | Newspaper3k + BeautifulSoup fallback |
 | `pipeline/analyzer.py`      | Gemini calls (standalone + RAG) |
 | `pipeline/synthesizer.py`   | builds final report; enforces NOT_SURE |
@@ -82,7 +82,7 @@ Copy `.env.example` → `.env` and fill in keys:
 |-----------|------|
 | Backend → AI | Calls `evaluate(text)` |
 | AI → Backend | Returns `CredibilityReport` |
-| AI → DE (later) | `credibility_filter` will call DE's `/credibility/{domain}` Postgres API |
+| AI → DE | `credibility_filter` calls DE's `/credibility/batch` endpoint and queues unrated domains for review |
 | AI → DE (later) | After v1 lands, hand the verdict to DE's Qdrant store API for caching |
 
 ## Running evals

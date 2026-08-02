@@ -1,4 +1,3 @@
-import csv
 import json
 import os
 import re
@@ -22,22 +21,14 @@ def clean_domain(source: str) -> str:
     return "" if domain in {"", "nan", "none", "null"} else domain
 
 
-def clean_country(country: str) -> str:
-    """Normalize country values and remove MBFC press-freedom annotations."""
-    value = str(country or "").strip().lower()
-    value = re.sub(r"\s*\([^)]*press freedom[^)]*\)\s*$", "", value).strip()
-    return value or "unknown"
-
-
-# Used only for valid CSV domains that are absent from the generated JSON.
-# JSON remains the authoritative source whenever it contains the domain.
-FACTUAL_REPORTING_SCORES = {
-    "very high": 0.95,
-    "high": 0.9,
-    "mostly factual": 0.75,
-    "mixed": 0.5,
-    "low": 0.1,
-    "very low": 0.05,
+CRED1_VERSION = "v2026-07-28"
+CRED1_CATEGORIES = {
+    "c": "Conspiracy",
+    "f": "Fake",
+    "m": "Mixed",
+    "r": "Reliable",
+    "s": "Satire",
+    "u": "Unreliable",
 }
 
 
@@ -72,79 +63,79 @@ VN_DOMAINS = [
 ]
 
 today = date.today()
-vn_rows = [(d, s, c, country, today) for d, s, c, country in VN_DOMAINS]
+vn_rows = [
+    (d, s, c, country, "manual", 1, "local-v1", today)
+    for d, s, c, country in VN_DOMAINS
+]
 
 execute_values(cur, """
     INSERT INTO sources
-        (domain, credibility_score, category, country, last_updated)
+        (domain, credibility_score, category, country, rating_source,
+         source_count, source_version, last_updated)
     VALUES %s
     ON CONFLICT (domain) DO UPDATE SET
         credibility_score = EXCLUDED.credibility_score,
         category          = EXCLUDED.category,
         country           = EXCLUDED.country,
+        rating_source     = EXCLUDED.rating_source,
+        source_count      = EXCLUDED.source_count,
+        source_version    = EXCLUDED.source_version,
         last_updated      = EXCLUDED.last_updated
 """, vn_rows)
 print(f"[seed] Inserted/updated {len(vn_rows)} Vietnamese domains.")
 
-# ── 2. MBFC domains (JSON scores + CSV countries) ─────────────
+# ── 2. CRED-1 negative-signal domains ─────────────────────────
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
-MBFC_JSON_PATH = DATA_DIR / "mbfc_credibility.json"
-MBFC_CSV_PATH = DATA_DIR / "mbfc_raw.csv"
+CRED1_PATH = DATA_DIR / "cred1_compact.json"
 
-if MBFC_JSON_PATH.exists() and MBFC_CSV_PATH.exists():
-    raw_scores = json.loads(MBFC_JSON_PATH.read_text(encoding="utf-8"))
-    json_scores = {
-        domain: float(score)
-        for raw_domain, score in raw_scores.items()
-        if (domain := clean_domain(raw_domain))
-    }
-
-    csv_by_domain = {}
-    with MBFC_CSV_PATH.open(newline="", encoding="utf-8-sig") as csv_file:
-        for row in csv.DictReader(csv_file):
-            domain = clean_domain(row.get("source", ""))
-            if domain and domain not in csv_by_domain:
-                csv_by_domain[domain] = row
-
-    mbfc_rows = []
-    skipped_without_score = 0
-    all_domains = sorted(set(json_scores) | set(csv_by_domain))
-    for domain in all_domains:
-        csv_row = csv_by_domain.get(domain, {})
-        score = json_scores.get(domain)
-        if score is None:
-            factual_label = str(csv_row.get("factual_reporting", "")).strip().lower()
-            score = FACTUAL_REPORTING_SCORES.get(factual_label)
-        if score is None:
-            skipped_without_score += 1
+if CRED1_PATH.exists():
+    raw_domains = json.loads(CRED1_PATH.read_text(encoding="utf-8"))
+    cred1_rows = []
+    for raw_domain, metadata in raw_domains.items():
+        domain = clean_domain(raw_domain)
+        category_code = str(metadata.get("c", ""))
+        score = metadata.get("s")
+        source_count = metadata.get("n")
+        if not domain or category_code not in CRED1_CATEGORIES or score is None:
             continue
+        cred1_rows.append((
+            domain,
+            float(score),
+            f"CRED-1 / {CRED1_CATEGORIES[category_code]}",
+            "unknown",
+            "CRED-1",
+            int(source_count) if source_count is not None else None,
+            CRED1_VERSION,
+            today,
+        ))
 
-        country = clean_country(csv_row.get("country", "unknown"))
-        mbfc_rows.append((domain, score, "MBFC", country, today))
+    # The previous MBFC-only import is intentionally retired. Manually curated
+    # rows are preserved because they use their own category and rating source.
+    cur.execute("DELETE FROM sources WHERE category = 'MBFC'")
+    retired_mbfc_count = cur.rowcount
 
     execute_values(cur, """
         INSERT INTO sources
-            (domain, credibility_score, category, country, last_updated)
+            (domain, credibility_score, category, country, rating_source,
+             source_count, source_version, last_updated)
         VALUES %s
         ON CONFLICT (domain) DO UPDATE SET
             credibility_score = EXCLUDED.credibility_score,
+            category          = EXCLUDED.category,
             country           = EXCLUDED.country,
+            rating_source     = EXCLUDED.rating_source,
+            source_count      = EXCLUDED.source_count,
+            source_version    = EXCLUDED.source_version,
             last_updated      = EXCLUDED.last_updated
-        WHERE sources.category = 'MBFC'
-    """, mbfc_rows)
-    # The WHERE clause updates previously seeded MBFC records while preserving
-    # manually curated Vietnamese credibility scores and categories.
+        WHERE sources.rating_source = 'CRED-1'
+           OR sources.category = 'MBFC'
+    """, cred1_rows)
     print(
-        f"[seed] Inserted/updated {len(mbfc_rows)} MBFC domains "
-        f"(skipped {skipped_without_score} without a supported score)."
+        f"[seed] Inserted/updated {len(cred1_rows)} CRED-1 domains "
+        f"and retired {retired_mbfc_count} MBFC-only rows."
     )
 else:
-    missing = [
-        str(path)
-        for path in (MBFC_JSON_PATH, MBFC_CSV_PATH)
-        if not path.exists()
-    ]
-    print(f"[seed] Missing MBFC file(s), skipping MBFC import: {missing}")
+    print(f"[seed] Missing CRED-1 file, skipping import: {CRED1_PATH}")
 
 conn.commit()
 cur.close()

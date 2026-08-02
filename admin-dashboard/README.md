@@ -12,9 +12,12 @@ databases, authentication, billing, or admin APIs yet.
 ## Included sections
 
 - Product overview and trust metrics
+- Extension product signals: highlight usage, star rating, uninstalls, and
+  7-day return rate (preview data until the analytics API is connected)
 - Analysis history and filters
 - Users and feedback placeholders
 - Source credibility management
+- CRED-1 dataset version and unknown-domain policy visibility
 - AI pipeline performance and cost
 - System health
 - PostgreSQL, Redis, and Qdrant explorer UI

@@ -20,7 +20,9 @@ from dotenv import load_dotenv
 from ..schema import (
     AnalysisResult,
     ConfidenceLevel,
+    EvidenceStatus,
     FetchedArticle,
+    RatingStatus,
     Source,
     Stance,
     Verdict,
@@ -35,7 +37,10 @@ _MODEL = "openrouter/auto"
 
 _NOT_SURE = AnalysisResult(
     verdict=Verdict.NOT_SURE,
-    explanation="Could not retrieve enough evidence to analyze this claim.",
+    explanation=(
+        "We couldn't gather enough accessible evidence to assess this claim "
+        "right now. This does not mean the claim is true or false."
+    ),
     sources=[],
     confidence=ConfidenceLevel.LOW,
 )
@@ -94,9 +99,14 @@ def _build_evidence_block(articles: List[FetchedArticle]) -> str:
     blocks = []
     for i, article in enumerate(articles, start=1):
         date_str = article.published_at.strftime("%Y-%m-%d") if article.published_at else "unknown"
+        rating = (
+            f"rated {article.credibility_score:.2f}"
+            if article.credibility_score is not None
+            else "unrated"
+        )
         blocks.append(
             f"--- Article {i} ---\n"
-            f"Domain: {article.domain} (credibility: {article.credibility_score})\n"
+            f"Domain: {article.domain} (source status: {rating})\n"
             f"Published: {date_str}\n"
             f"Title: {article.title}\n"
             f"Body: {article.body}"
@@ -130,6 +140,7 @@ def _parse_response(raw: str, articles: List[FetchedArticle]) -> AnalysisResult:
                 domain=article.domain,
                 title=article.title,
                 credibility_score=article.credibility_score,
+                rating_status=article.rating_status,
                 stance=stance,
                 published_at=article.published_at,
             ))
@@ -139,10 +150,50 @@ def _parse_response(raw: str, articles: List[FetchedArticle]) -> AnalysisResult:
             explanation=data["explanation"][:500],
             sources=sources,
             confidence=ConfidenceLevel(data["confidence"]),
+            evidence_status=(
+                EvidenceStatus.RATED
+                if any(a.rating_status == RatingStatus.RATED for a in articles)
+                else EvidenceStatus.LIMITED_UNRATED
+            ),
         )
     except Exception as e:
         print(f"[synthesizer] failed to parse LLM response: {e}")
         return _NOT_SURE
+
+
+def _apply_evidence_policy(result: AnalysisResult) -> AnalysisResult:
+    """Prevent unrated coverage from masquerading as verified evidence."""
+    if not result.sources:
+        return result
+
+    rated_count = sum(
+        source.rating_status == RatingStatus.RATED for source in result.sources
+    )
+    if rated_count == 0:
+        supports = sum(source.stance == Stance.SUPPORTS for source in result.sources)
+        contradicts = sum(source.stance == Stance.CONTRADICTS for source in result.sources)
+        if supports and not contradicts:
+            signal = "The available coverage reports the claim"
+        elif contradicts and not supports:
+            signal = "The available coverage disputes the claim"
+        else:
+            signal = "The available coverage does not reach a clear consensus"
+
+        return result.model_copy(update={
+            "verdict": Verdict.UNVERIFIED,
+            "confidence": ConfidenceLevel.LOW,
+            "evidence_status": EvidenceStatus.LIMITED_UNRATED,
+            "explanation": (
+                f"{signal}, but none of these sources has been independently "
+                "rated yet. Treat this as an early signal, not confirmation."
+            )[:500],
+        })
+
+    # A single independently rated source can be useful, but is not enough for
+    # the strongest confidence label by itself.
+    if rated_count == 1 and result.confidence == ConfidenceLevel.HIGH:
+        return result.model_copy(update={"confidence": ConfidenceLevel.MEDIUM})
+    return result
 
 
 def synthesize(claim: str, articles: List[FetchedArticle]) -> AnalysisResult:
@@ -172,7 +223,8 @@ Analyze each article against the user's claim and respond with the JSON object."
                 {"role": "user", "content": prompt},
             ],
         )
-        return _parse_response(response.choices[0].message.content, articles)
+        parsed = _parse_response(response.choices[0].message.content, articles)
+        return _apply_evidence_policy(parsed)
     except Exception as e:
         print(f"[synthesizer] LLM call failed: {e}")
         return _NOT_SURE

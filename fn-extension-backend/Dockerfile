@@ -6,8 +6,10 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
 WORKDIR /app
 
-# Enable bytecode compilation for faster startups
-ENV UV_COMPILE_BYTECODE=1
+# Bytecode compilation disabled: pre-compile step times out on t3.small
+# (large PyTorch files exceed uv's 60s per-file compile limit under CPU pressure)
+# .pyc files are generated lazily on first import instead — small one-time runtime cost.
+ENV UV_COMPILE_BYTECODE=0
 
 # Copy lockfiles first to leverage Docker caching
 COPY pyproject.toml uv.lock ./

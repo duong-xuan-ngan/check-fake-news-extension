@@ -1,0 +1,32 @@
+[project]
+name = "backend"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "alembic>=1.14.0",
+    "bs4>=0.0.2",
+    "fastapi>=0.135.3",
+    "google-genai>=1.70.0",
+    "lxml-html-clean>=0.4.5",
+    "newspaper3k>=0.2.8",
+    "openai>=2.38.0",
+    "pydantic>=2.12.5",
+    "psycopg2-binary>=2.9.10",
+    "qdrant-client>=1.13.0",
+    "requests>=2.33.1",
+    "sqlalchemy>=2.0.0",
+    "sentence-transformers>=5.5.1",
+    "torch>=2.0.0",
+    "uvicorn>=0.42.0",
+]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+torchvision = { index = "pytorch-cpu" }

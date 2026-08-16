@@ -1,0 +1,94 @@
+### VeriFact backend API tests
+### Base URL — dev (docker compose up) runs the backend at localhost:8000
+@base = http://localhost:8000
+
+### ---------------------------------------------------------------------------
+### Health
+### ---------------------------------------------------------------------------
+
+GET {{base}}/health HTTP/1.1
+
+### ---------------------------------------------------------------------------
+### Analyze — English, well-known TRUE fact
+### ---------------------------------------------------------------------------
+
+POST {{base}}/analyze HTTP/1.1
+Content-Type: application/json
+
+{
+  "text": "Paris is the capital of France"
+}
+
+### ---------------------------------------------------------------------------
+### Analyze — English, FALSE claim
+### ---------------------------------------------------------------------------
+
+POST {{base}}/analyze HTTP/1.1
+Content-Type: application/json
+
+{
+  "text": "Florentino Perez is the president of FC Barcelona"
+}
+
+### ---------------------------------------------------------------------------
+### Analyze — Vietnamese claim (pipeline normalizes to English first)
+### ---------------------------------------------------------------------------
+
+POST {{base}}/analyze HTTP/1.1
+Content-Type: application/json
+
+{
+  "text": "Florentino Perez là chủ tịch của FC Barcelona"
+}
+
+### ---------------------------------------------------------------------------
+### Analyze — Ambiguous / opinion claim (expect NOT_SURE or UNVERIFIED)
+### ---------------------------------------------------------------------------
+
+POST {{base}}/analyze HTTP/1.1
+Content-Type: application/json
+
+{
+  "text": "Pineapple belongs on pizza"
+}
+
+### ---------------------------------------------------------------------------
+### Analyze — Empty text (expect NOT_SURE / low confidence, no sources)
+### ---------------------------------------------------------------------------
+
+POST {{base}}/analyze HTTP/1.1
+Content-Type: application/json
+
+{
+  "text": ""
+}
+
+### ---------------------------------------------------------------------------
+### Credibility — known domain (expect score + category + "found")
+### ---------------------------------------------------------------------------
+
+GET {{base}}/credibility?domain=vnexpress.net HTTP/1.1
+
+### ---------------------------------------------------------------------------
+### Credibility — unknown domain (expect null score + "not_found")
+### ---------------------------------------------------------------------------
+
+GET {{base}}/credibility?domain=unknown.example.com HTTP/1.1
+
+### ---------------------------------------------------------------------------
+### Logs — store an operational log record (mock payload)
+### ---------------------------------------------------------------------------
+
+POST {{base}}/logs HTTP/1.1
+Content-Type: application/json
+
+{
+  "id": "00000000000000000000000000000000",
+  "input_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "timestamp": "2026-08-16T00:00:00Z",
+  "steps_completed": "[\"search\", \"filter\", \"fetch\", \"llm\"]",
+  "verdict": "FALSE",
+  "error_stage": null,
+  "error_message": null,
+  "response_time_ms": 1234
+}

@@ -1,4 +1,4 @@
-"""End-to-end smoke test for the full ai_core.analyze() pipeline.
+"""End-to-end smoke test for the full pipeline.analyze() entry point.
 
 Runs a small suite of claims (English + Vietnamese, true + false + ambiguous)
 through the public analyze() entry point and prints a structured summary for
@@ -18,10 +18,10 @@ import sys
 import time
 from pathlib import Path
 
-# Make ai_core importable when run as a script
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+# Make pipeline importable when run as a script
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "backend"))
 
-from ai_core import analyze, AnalysisResult
+from pipeline import analyze, AnalysisResult
 
 
 # ---------------------------------------------------------------------------
@@ -114,7 +114,7 @@ def _run_one(description: str, claim: str, expected_hint: str) -> None:
 # ---------------------------------------------------------------------------
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="End-to-end test for ai_core.analyze()")
+    parser = argparse.ArgumentParser(description="End-to-end test for pipeline.analyze()")
     parser.add_argument(
         "index",
         nargs="?",
@@ -143,7 +143,7 @@ def main() -> None:
         return
 
     # Run the whole suite
-    print(f"\nRunning {len(TEST_CASES)} test case(s) through ai_core.analyze()...\n")
+    print(f"\nRunning {len(TEST_CASES)} test case(s) through pipeline.analyze()...\n")
     for description, claim, expected in TEST_CASES:
         _run_one(description, claim, expected)
 

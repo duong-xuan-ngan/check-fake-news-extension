@@ -1,4 +1,4 @@
-# Build artifacts from Vite (sidepanel-src → extension/)
+# Build artifacts from Vite (extension-src → extension/)
 extension/assets/
 extension/index.html
 
@@ -13,6 +13,7 @@ package-lock.json
 
 # Environment Variables / Secrets
 .env
+production/.env
 data/cache.json
 
 # Python Virtual Environment
@@ -25,5 +26,4 @@ __pycache__/
 .pytest_cache/
 node_modules/
 .agents/
-docs/
 venv/

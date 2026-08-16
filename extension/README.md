@@ -27,5 +27,5 @@ Steps to perform:
 - Ensure the backend server is running.
 - Navigate to any regular webpage. Note that extensions do not work on internal `chrome://` pages.
 - Highlight any text or news snippet you want to verify.
-- Right-click on the highlighted text and select the option from the context menu (e.g., Analyze with Fake News Checker).
-- The extension's side panel will open automatically and send the data to the backend for analysis.
+- Click the VeriFact icon that appears near the selection, or right-click the highlighted text and choose `Analyze with Fake News Checker`.
+- A VeriFact popup will open on the page and send the selected text to the backend for analysis.

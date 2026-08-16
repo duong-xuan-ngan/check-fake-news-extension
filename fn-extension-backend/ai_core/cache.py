@@ -57,8 +57,11 @@ def set(english_claim: str, result: AnalysisResult) -> None:
 
     try:
         embedding = _get_embedding(english_claim)
-        # Dump the model to a JSON-safe dict, exclude 'cached' as we set it on hit
-        result_dict = result.model_dump(mode='json', exclude={'cached'})
+        # Dump the model to a JSON-safe dict, exclude 'cached' as we set it on hit.
+        # 'failure_reason' is excluded too: only successful results reach this
+        # point (see _is_insufficient_evidence above), so it is always None here,
+        # and omitting it keeps the DE /cache/store payload unchanged.
+        result_dict = result.model_dump(mode='json', exclude={'cached', 'failure_reason'})
         payload = {
             "embedding": embedding,
             **result_dict

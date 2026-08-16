@@ -2,7 +2,7 @@
 chrome.runtime.onInstalled.addListener(() => {
   chrome.contextMenus.create({
     id: 'analyze-selection',
-    title: 'Analyze with Fake News Checker',
+    title: 'Check with SnapCheck',
     contexts: ['selection'],
   })
 })
@@ -15,4 +15,16 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
       text: info.selectionText,
     })
   }
+})
+
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message.type !== 'OPEN_FULL_REPORT' || !message.result) return
+
+  chrome.storage.session
+    .set({ snapcheckFullReport: message.result })
+    .then(() => chrome.tabs.create({ url: chrome.runtime.getURL('report.html') }))
+    .then(() => sendResponse({ ok: true }))
+    .catch((error) => sendResponse({ ok: false, error: error.message }))
+
+  return true
 })

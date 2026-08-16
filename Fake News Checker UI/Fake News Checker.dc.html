@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<style>
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:'Inter',system-ui,-apple-system,sans-serif; -webkit-font-smoothing:antialiased; background:#e9edf3; }
+  a { color:#64748b; text-decoration:none; }
+  a:hover { color:#334155; }
+</style>
+</helmet>
+
+<div style="min-height:100vh; display:flex; justify-content:center; align-items:flex-start; padding:48px 24px; background:#e9edf3;">
+  <div style="width:100%; max-width:784px; background:#ffffff; border-radius:22px; box-shadow:0 30px 70px rgba(15,23,42,0.16), 0 6px 18px rgba(15,23,42,0.05); padding:28px 30px 18px;">
+
+    <div style="display:grid; grid-template-columns:0.82fr 1fr; gap:30px; align-items:stretch;">
+
+      <div style="{{ leftCardStyle }}">
+        <div style="display:flex; align-items:center; gap:16px;">
+          <sc-if value="{{ isTrue }}">
+            <svg width="70" height="70" viewBox="0 0 48 48" fill="none" style="flex-shrink:0;"><defs><linearGradient id="sh-green" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#9be15f"></stop><stop offset="1" stop-color="#22c55e"></stop></linearGradient></defs><path d="M24 4 L41 10.5 L41 24 C41 34 33.5 41 24 44 C14.5 41 7 34 7 24 L7 10.5 Z" fill="url(#sh-green)"></path><path d="M16 24.5 L21.5 30 L32 18" fill="none" stroke="#ffffff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+          </sc-if>
+          <sc-if value="{{ isFalse }}">
+            <svg width="70" height="70" viewBox="0 0 48 48" fill="none" style="flex-shrink:0;"><defs><linearGradient id="sh-red" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fda4a4"></stop><stop offset="1" stop-color="#ef4444"></stop></linearGradient></defs><path d="M24 4 L41 10.5 L41 24 C41 34 33.5 41 24 44 C14.5 41 7 34 7 24 L7 10.5 Z" fill="url(#sh-red)"></path><path d="M18.5 18.5 L29.5 29.5 M29.5 18.5 L18.5 29.5" fill="none" stroke="#ffffff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"></path></svg>
+          </sc-if>
+          <sc-if value="{{ isNotSure }}">
+            <svg width="70" height="70" viewBox="0 0 48 48" fill="none" style="flex-shrink:0;"><defs><linearGradient id="sh-amber" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#fcd34d"></stop><stop offset="1" stop-color="#f59e0b"></stop></linearGradient></defs><path d="M24 4 L41 10.5 L41 24 C41 34 33.5 41 24 44 C14.5 41 7 34 7 24 L7 10.5 Z" fill="url(#sh-amber)"></path><text x="24" y="32" text-anchor="middle" font-family="Inter,sans-serif" font-size="24" font-weight="800" fill="#ffffff">?</text></svg>
+          </sc-if>
+          <div>
+            <div style="{{ labelStyle }}">{{ verdictLabel }}</div>
+            <div style="{{ credStyle }}">{{ credLine }}</div>
+          </div>
+        </div>
+
+        <div style="display:flex; gap:8px; margin-top:32px;">
+          <sc-for list="{{ segments }}" as="seg" hint-placeholder-count="4">
+            <div style="{{ seg }}"></div>
+          </sc-for>
+        </div>
+        <div style="margin-top:16px; font-size:19px; font-weight:600; color:#0f172a; letter-spacing:-0.01em;">{{ confidenceText }}</div>
+
+        <div style="margin-top:24px; font-size:17px; line-height:1.5; color:#334155;">{{ note }}</div>
+      </div>
+
+      <div style="display:flex; flex-direction:column; gap:26px;">
+        <div>
+          <div style="display:flex; align-items:center; gap:9px; margin-bottom:14px;">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="#22c55e"><path d="M11.519 2.243a.5.5 0 0 1 .962 0l1.582 6.135A2 2 0 0 0 15.5 9.815l6.135 1.582a.5.5 0 0 1 0 .962L15.5 13.941a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.962 0l-1.582-6.135A2 2 0 0 0 8.5 13.941l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.815a2 2 0 0 0 1.437-1.437z"></path><path d="M19 3v3M20.5 4.5h-3" stroke="#22c55e" stroke-width="1.6" stroke-linecap="round"></path></svg>
+            <span style="font-size:20px; font-weight:700; color:#0f172a; letter-spacing:-0.01em;">AI Summary</span>
+          </div>
+          <p style="margin:0; font-size:18px; line-height:1.55; color:#1e293b;">AI is rapidly changing industries by automating tasks, improving efficiency, and augmenting human capabilities.</p>
+        </div>
+
+        <div>
+          <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:14px;">
+            <span style="font-size:19px; font-weight:700; color:#0f172a; letter-spacing:-0.01em;">Sources</span>
+            <a href="#" style="display:flex; align-items:center; gap:4px; font-size:15px; font-weight:500; color:#64748b;">View all <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"></path></svg></a>
+          </div>
+          <div style="display:flex; flex-direction:column; gap:12px;">
+
+            <div style="display:flex; align-items:center; gap:14px; padding:12px 14px; border:1px solid #eef0f4; border-radius:14px; background:#ffffff;">
+              <div style="width:40px; height:40px; border-radius:10px; background:#0a0a0a; display:flex; align-items:center; justify-content:center; flex-shrink:0;"><span style="color:#ffffff; font-size:12px; font-weight:800; letter-spacing:0.03em;">MIT</span></div>
+              <div style="flex:1; min-width:0;">
+                <div style="font-size:16px; font-weight:700; color:#0f172a;">MIT Technology Review</div>
+                <div style="font-size:14px; color:#94a3b8;">mit.edu</div>
+              </div>
+              <div style="display:flex; align-items:center; gap:7px; flex-shrink:0;">
+                <span style="width:8px; height:8px; border-radius:50%; background:#22c55e;"></span>
+                <span style="font-size:15px; font-weight:500; color:#16a34a;">High</span>
+              </div>
+            </div>
+
+            <div style="display:flex; align-items:center; gap:14px; padding:12px 14px; border:1px solid #eef0f4; border-radius:14px; background:#ffffff;">
+              <div style="width:40px; height:40px; border-radius:10px; background:#18316b; display:flex; align-items:center; justify-content:center; flex-shrink:0;"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="11" x="3" y="11" rx="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg></div>
+              <div style="flex:1; min-width:0;">
+                <div style="font-size:16px; font-weight:700; color:#0f172a;">Stanford AI Index</div>
+                <div style="font-size:14px; color:#94a3b8;">aiindex.stanford.edu</div>
+              </div>
+              <div style="display:flex; align-items:center; gap:7px; flex-shrink:0;">
+                <span style="width:8px; height:8px; border-radius:50%; background:#22c55e;"></span>
+                <span style="font-size:15px; font-weight:500; color:#16a34a;">High</span>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <div style="border-top:1px solid #eef0f4; margin-top:26px; padding-top:12px; display:flex; align-items:center; justify-content:flex-end; gap:14px;">
+      <button style="display:flex; align-items:center; gap:8px; background:transparent; border:none; cursor:pointer; color:#64748b; font-size:16px; font-weight:500; padding:8px 12px; border-radius:9px; font-family:'Inter',sans-serif; transition:all 0.15s ease;" style-hover="background:#f1f5f9; color:#0f172a;">
+        <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z"></path></svg>
+        Feedback
+      </button>
+      <span style="width:1px; height:24px; background:#e2e8f0;"></span>
+      <button title="Settings" style="display:flex; align-items:center; justify-content:center; width:40px; height:40px; border-radius:9px; border:none; background:transparent; color:#64748b; cursor:pointer; transition:all 0.15s ease;" style-hover="background:#f1f5f9; color:#0f172a;">
+        <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path><circle cx="12" cy="12" r="3"></circle></svg>
+      </button>
+      <button title="Close" style="display:flex; align-items:center; justify-content:center; width:40px; height:40px; border-radius:9px; border:none; background:transparent; color:#64748b; cursor:pointer; transition:all 0.15s ease;" style-hover="background:#f1f5f9; color:#0f172a;">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"></path><path d="m6 6 12 12"></path></svg>
+      </button>
+    </div>
+
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{
+  &quot;verdict&quot;: { &quot;editor&quot;: &quot;enum&quot;, &quot;options&quot;: [&quot;Likely True&quot;, &quot;Likely False&quot;, &quot;Not Sure&quot;], &quot;default&quot;: &quot;Likely True&quot;, &quot;tsType&quot;: &quot;'Likely True' | 'Likely False' | 'Not Sure'&quot;, &quot;section&quot;: &quot;Verdict&quot; },
+  &quot;confidence&quot;: { &quot;editor&quot;: &quot;range&quot;, &quot;default&quot;: 85, &quot;min&quot;: 0, &quot;max&quot;: 100, &quot;step&quot;: 1, &quot;unit&quot;: &quot;%&quot;, &quot;tsType&quot;: &quot;number&quot;, &quot;section&quot;: &quot;Verdict&quot; }
+}">
+class Component extends DCLogic {
+  MAP = {
+    'Likely True': {
+      color:'#16a34a', tint:'rgba(34,197,94,0.08)', credLine:'High credibility',
+      note:'Multiple reliable sources support this information.',
+      barFill:'linear-gradient(90deg,#8ee063,#22c55e)',
+    },
+    'Likely False': {
+      color:'#dc2626', tint:'rgba(239,68,68,0.07)', credLine:'Low credibility',
+      note:'Multiple reliable sources contradict this information.',
+      barFill:'linear-gradient(90deg,#fca5a5,#ef4444)',
+    },
+    'Not Sure': {
+      color:'#d97706', tint:'rgba(245,158,11,0.10)', credLine:'Unverified',
+      note:"There isn't enough reliable evidence to verify this claim yet.",
+      barFill:'linear-gradient(90deg,#fcd34d,#f59e0b)',
+    },
+  };
+
+  renderVals() {
+    const sel = this.props.verdict && this.MAP[this.props.verdict] ? this.props.verdict : 'Likely True';
+    const m = this.MAP[sel];
+    const conf = this.props.confidence != null ? Math.max(0, Math.min(100, this.props.confidence)) : 85;
+    const filled = Math.max(0, Math.min(4, Math.round(conf / 25)));
+    const segBase = { flex:1, height:'8px', borderRadius:'999px' };
+    const segments = [0,1,2,3].map(i => ({ ...segBase, background: i < filled ? m.barFill : '#e5e8ee' }));
+
+    return {
+      isTrue: sel === 'Likely True',
+      isFalse: sel === 'Likely False',
+      isNotSure: sel === 'Not Sure',
+      verdictLabel: sel,
+      credLine: m.credLine,
+      note: m.note,
+      confidenceText: 'Confidence ' + conf + '%',
+      segments,
+      leftCardStyle: {
+        background: m.tint, borderRadius:'20px', padding:'30px',
+        display:'flex', flexDirection:'column',
+      },
+      labelStyle: { fontSize:'26px', fontWeight:800, color:m.color, letterSpacing:'-0.02em', lineHeight:'1.15', whiteSpace:'nowrap' },
+      credStyle: { marginTop:'6px', fontSize:'19px', fontWeight:600, color:m.color },
+    };
+  }
+}
+</script>
+</body>
+</html>

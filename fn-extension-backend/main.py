@@ -24,15 +24,41 @@ class AnalyzeRequest(BaseModel):
 
 DE_API_URL = os.getenv("DE_API_URL", "http://localhost:8001")
 
+# Where the pipeline got to before each failure reason stopped it. A run that
+# fails at the fetch stage did complete search and filter, and logging it as a
+# clean four-step run is what made these failures invisible in production.
+_STEPS_BEFORE_FAILURE = {
+    "EMPTY_INPUT":         [],
+    "NO_SEARCH_RESULTS":   ["search"],
+    "NO_CREDIBLE_SOURCES": ["search", "filter"],
+    "NO_ARTICLE_CONTENT":  ["search", "filter", "fetch"],
+    "LLM_ERROR":           ["search", "filter", "fetch"],
+    "PARSE_ERROR":         ["search", "filter", "fetch", "llm"],
+}
+_ALL_STEPS = ["search", "filter", "fetch", "llm"]
+
+
 def log_to_de_api(input_text: str, result: AnalysisResult, response_time_ms: int, error_stage: str = None, error_message: str = None):
     """Fire-and-forget logging to the DE API."""
     try:
         input_hash = hashlib.sha256(input_text.encode('utf-8')).hexdigest()
+
+        # A pipeline-internal failure never raises, so it reaches here with
+        # error_stage still None. Take it from the result instead.
+        failure = result.failure_reason.value if result.failure_reason else None
+        if error_stage is None:
+            error_stage = failure
+
+        if result.cached:
+            steps_completed = ["cache"]
+        else:
+            steps_completed = _STEPS_BEFORE_FAILURE.get(failure, _ALL_STEPS)
+
         log_payload = {
             "id": os.urandom(16).hex(), # Unique log ID
             "input_hash": input_hash,
             "timestamp": time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
-            "steps_completed": ["search", "filter", "fetch", "llm"] if not result.cached else ["cache"],
+            "steps_completed": steps_completed,
             "verdict": result.verdict.value,
             "error_stage": error_stage,
             "error_message": error_message,

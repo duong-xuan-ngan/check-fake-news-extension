@@ -15,6 +15,7 @@ dependencies = [
     "pydantic>=2.12.5",
     "requests>=2.33.1",
     "sentence-transformers>=5.5.1",
+    "torch>=2.0.0",
     "uvicorn>=0.42.0",
 ]
 

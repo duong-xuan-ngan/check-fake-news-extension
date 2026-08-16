@@ -45,3 +45,6 @@ dmypy.json
 
 # Pyright
 .pyrightconfig.json
+
+# Working notes — session logs, runbooks
+ai_core/pipeline/docs/

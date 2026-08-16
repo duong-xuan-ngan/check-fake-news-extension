@@ -1,19 +1,21 @@
 {
   "manifest_version": 3,
-  "name": "VeriFact",
+  "name": "SnapCheck",
   "version": "0.1.0",
-  "description": "Highlight text on any webpage to check for fake news using AI analysis.",
+  "description": "Check before you trust.",
   "permissions": [
     "activeTab",
-    "contextMenus"
+    "contextMenus",
+    "storage"
   ],
   "host_permissions": [
     "http://localhost:8000/*",
-    "http://127.0.0.1:8000/*"
+    "http://127.0.0.1:8000/*",
+    "https://verifact.duckdns.org/*"
   ],
   "web_accessible_resources": [
     {
-      "resources": ["assets/*", "icons/*", "content.css"],
+      "resources": ["icons/*", "branding/*", "content.css"],
       "matches": ["<all_urls>"]
     }
   ],
@@ -27,12 +29,12 @@
     }
   ],
   "icons": {
-    "128": "icons/icon128.png"
+    "128": "icons/SnapCheck.png"
   },
   "action": {
     "default_icon": {
-      "128": "icons/icon128.png"
+      "128": "icons/SnapCheck.png"
     },
-    "default_title": "VeriFact"
+    "default_title": "SnapCheck"
   }
 }

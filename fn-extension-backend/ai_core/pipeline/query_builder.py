@@ -21,6 +21,13 @@ _CLIENT = OpenAI(
     api_key=os.getenv("OPENROUTER_API_KEY"),
 )
 _MODEL = "openrouter/auto"
+# Output is one short query line. Left unset, OpenRouter reserves the model's
+# full output ceiling (65536) against the account balance and 402s on a small
+# balance — for a ~15-word answer. But 64 is too tight: when auto-routing picks
+# a reasoning model, reasoning tokens count against this budget and can consume
+# it entirely, leaving content empty. 256 gives that headroom while still being
+# a rounding error against the account balance.
+_MAX_TOKENS = 256
 
 _SYSTEM_PROMPT = """You are a search query optimizer.
 
@@ -66,12 +73,16 @@ def build_search_query(english_claim: str) -> str:
         response = _CLIENT.chat.completions.create(
             model=_MODEL,
             temperature=0.1,
+            max_tokens=_MAX_TOKENS,
             messages=[
                 {"role": "system", "content": _SYSTEM_PROMPT},
                 {"role": "user", "content": cleaned},
             ],
         )
-        query = response.choices[0].message.content.strip()
+        # content can be None — a reasoning model that spent its whole token
+        # budget on reasoning returns no content. Don't call .strip() on None.
+        content = response.choices[0].message.content
+        query = (content or "").strip()
         # Strip any accidental quotes or markdown the model might add
         query = re.sub(r"^[\"'`]+|[\"'`]+$", "", query).strip()
         if query:

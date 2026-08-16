@@ -20,10 +20,12 @@ from dotenv import load_dotenv
 from ..schema import (
     AnalysisResult,
     ConfidenceLevel,
+    FailureReason,
     FetchedArticle,
     Source,
     Stance,
     Verdict,
+    failure_result,
 )
 
 load_dotenv()
@@ -32,13 +34,16 @@ _CLIENT = OpenAI(
     api_key=os.getenv("OPENROUTER_API_KEY"),
 )
 _MODEL = "openrouter/auto"
+# Worst case is ~10 stance objects (~100 tokens each) plus a 500-char
+# explanation — roughly 1200. 2048 leaves headroom, because a truncated
+# response is not a short answer, it is a PARSE_ERROR.
+# See query_builder._MAX_TOKENS for why this must be set explicitly.
+_MAX_TOKENS = 2048
 
-_NOT_SURE = AnalysisResult(
-    verdict=Verdict.NOT_SURE,
-    explanation="Could not retrieve enough evidence to analyze this claim.",
-    sources=[],
-    confidence=ConfidenceLevel.LOW,
-)
+# Failure results carry a machine-readable reason. This module only attributes
+# failures it can actually see — an empty article list is reported as
+# NO_ARTICLE_CONTENT and refined by analyze(), which knows whether the evidence
+# was lost at search, filter, or fetch.
 
 _SYSTEM_PROMPT = """You are a fact-checking assistant. You will be given a USER CLAIM and a numbered list of news articles.
 
@@ -108,7 +113,7 @@ def _parse_response(raw: str, articles: List[FetchedArticle]) -> AnalysisResult:
     """Parse LLM JSON and build AnalysisResult from our own article data + LLM stances.
 
     URLs/titles/scores come from `articles`, NEVER from the LLM (anti-hallucination).
-    Returns _NOT_SURE on any failure.
+    Returns a PARSE_ERROR failure result on any failure.
     """
     try:
         clean = re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL)
@@ -142,16 +147,20 @@ def _parse_response(raw: str, articles: List[FetchedArticle]) -> AnalysisResult:
         )
     except Exception as e:
         print(f"[synthesizer] failed to parse LLM response: {e}")
-        return _NOT_SURE
+        print(f"[synthesizer] TEMP raw response: {raw!r}")   # diagnostic, remove after
+        return failure_result(FailureReason.PARSE_ERROR)
 
 
 def synthesize(claim: str, articles: List[FetchedArticle]) -> AnalysisResult:
     """Single LLM call: claim + articles -> AnalysisResult.
 
-    Returns _NOT_SURE if articles list is empty or LLM call fails.
+    On failure returns a NOT_SURE result carrying a `failure_reason`:
+      - empty article list  -> NO_ARTICLE_CONTENT (analyze() refines this)
+      - LLM call raised     -> LLM_ERROR
+      - response unparsable -> PARSE_ERROR
     """
     if not articles:
-        return _NOT_SURE
+        return failure_result(FailureReason.NO_ARTICLE_CONTENT)
 
     evidence = _build_evidence_block(articles)
 
@@ -166,6 +175,7 @@ Analyze each article against the user's claim and respond with the JSON object."
         response = _CLIENT.chat.completions.create(
             model=_MODEL,
             temperature=0.1,
+            max_tokens=_MAX_TOKENS,
             response_format={"type": "json_object"},
             messages=[
                 {"role": "system", "content": _SYSTEM_PROMPT},
@@ -175,4 +185,4 @@ Analyze each article against the user's claim and respond with the JSON object."
         return _parse_response(response.choices[0].message.content, articles)
     except Exception as e:
         print(f"[synthesizer] LLM call failed: {e}")
-        return _NOT_SURE
+        return failure_result(FailureReason.LLM_ERROR)

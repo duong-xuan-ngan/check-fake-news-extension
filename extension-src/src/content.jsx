@@ -7,9 +7,9 @@ import HighlightBubble, {
   BUBBLE_CORE_HEIGHT,
   BUBBLE_TAIL_HEIGHT,
 } from './components/HighlightBubble.jsx'
+import { apiFetch, getSession } from './lib/api.js'
 import './index.css'
 
-const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000'
 const POPUP_WIDTH = 420
 const POPUP_GUTTER = 15
 const VIEWPORT_MARGIN = 12
@@ -193,7 +193,7 @@ function startResultDrag(e, container) {
   handle.addEventListener('pointercancel', onUp)
 }
 
-function showResult({ result, error }, rect) {
+function showResult({ result, error, signInRequired, quotaExceeded }, rect) {
   const container = getResultContainer()
   if (!resultDragged) {
     positionResultContainer(container, rect)
@@ -203,6 +203,9 @@ function showResult({ result, error }, rect) {
       <PopupApp
         result={result}
         error={error}
+        signInRequired={signInRequired}
+        quotaExceeded={quotaExceeded}
+        onSignIn={() => chrome.runtime.sendMessage({ type: 'OPEN_OPTIONS' })}
         onClose={() => {
           container.style.display = 'none'
         }}
@@ -383,6 +386,7 @@ function hideBubble() {
 
 let activeController = null
 let resultDragged = false
+let signInPending = false
 
 async function runAnalysis(text, originRect) {
   if (activeController) activeController.abort()
@@ -391,18 +395,49 @@ async function runAnalysis(text, originRect) {
   resultDragged = false
 
   hideResult()
+
+  const session = await getSession()
+  if (!session || !session.accessToken) {
+    signInPending = true
+    showResult({ signInRequired: true }, originRect)
+    return
+  }
+  signInPending = false
+
   showPill(() => {
     controller.abort()
     hidePill()
   }, originRect)
 
   try {
-    const response = await fetch(`${API_BASE}/analyze`, {
+    const response = await apiFetch('/analyze', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text }),
       signal: controller.signal,
     })
+    if (response.status === 401) {
+      signInPending = true
+      hidePill()
+      showResult({ signInRequired: true }, originRect)
+      return
+    }
+    if (response.status === 429) {
+      let quotaExceeded = true
+      try {
+        const body = await response.json()
+        if (body?.detail?.error !== 'daily_limit_reached') quotaExceeded = false
+      } catch {
+        quotaExceeded = false
+      }
+      hidePill()
+      if (quotaExceeded) {
+        showResult({ quotaExceeded: true }, originRect)
+      } else {
+        showResult({ error: 'Too many requests. Please try again later.' }, originRect)
+      }
+      return
+    }
     if (!response.ok) throw new Error(`Server error: ${response.status}`)
     const result = await response.json()
     if (controller.signal.aborted) return
@@ -461,5 +496,13 @@ chrome.runtime.onMessage.addListener((message) => {
     }
 
     runAnalysis(message.text, rect)
+  }
+})
+
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== 'local' || !changes.vf_session) return
+  if (changes.vf_session.newValue && signInPending && currentSelection) {
+    signInPending = false
+    runAnalysis(currentSelection, getFallbackRect())
   }
 })

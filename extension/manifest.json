@@ -6,6 +6,7 @@
   "permissions": [
     "activeTab",
     "contextMenus",
+    "identity",
     "storage"
   ],
   "host_permissions": [
@@ -36,5 +37,9 @@
       "128": "icons/SnapCheck.png"
     },
     "default_title": "SnapCheck"
+  },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
   }
 }

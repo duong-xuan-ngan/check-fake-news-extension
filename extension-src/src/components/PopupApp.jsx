@@ -3,7 +3,9 @@ import {
   ChevronRight,
   Circle,
   ExternalLink,
+  Gauge,
   GripVertical,
+  LogIn,
   MessageCircle,
   Settings,
   Shield,
@@ -11,7 +13,7 @@ import {
   X,
 } from 'lucide-react'
 
-const BRAND_LOGO_URL = chrome.runtime.getURL('branding/SnapCheck_MainMenu.png')
+const BRAND_LOGO_URL = chrome.runtime.getURL('icons/SnapCheck_MainMenu.png')
 
 const VERDICT_UI = {
   TRUE: {
@@ -107,7 +109,7 @@ function SourceRow({ source }) {
  * live in content.jsx — this component renders the given state and forwards
  * the drag handle's pointerdown to whatever handler content.jsx supplies.
  */
-export default function PopupApp({ result, error, onClose, onDragHandlePointerDown, onViewFullReport }) {
+export default function PopupApp({ result, error, signInRequired, quotaExceeded, onSignIn, onClose, onDragHandlePointerDown, onViewFullReport }) {
   const ui = VERDICT_UI[result?.verdict] || VERDICT_UI.NOT_SURE
   const confidence = result ? confidenceToPercent(result.confidence) : 0
   const sources = result?.sources || []
@@ -138,6 +140,32 @@ export default function PopupApp({ result, error, onClose, onDragHandlePointerDo
       </header>
 
       <div className="vf-body">
+        {signInRequired && (
+          <div className="vf-error">
+            <div className="vf-error-mark vf-error-mark--accent">
+              <LogIn size={28} />
+            </div>
+            <h2>Sign in required</h2>
+            <p>Sign in with Google to check claims.</p>
+            <button className="vf-signin-button" type="button" onClick={onSignIn}>
+              Sign in with Google
+            </button>
+          </div>
+        )}
+
+        {quotaExceeded && (
+          <div className="vf-error">
+            <div className="vf-error-mark vf-error-mark--accent">
+              <Gauge size={28} />
+            </div>
+            <h2>Daily limit reached</h2>
+            <p>You've used all 5 checks for today. Your limit resets at midnight UTC.</p>
+            <button className="vf-signin-button" type="button" onClick={onSignIn}>
+              View usage
+            </button>
+          </div>
+        )}
+
         {error && (
           <div className="vf-error">
             <div className="vf-error-mark">

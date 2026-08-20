@@ -2,8 +2,8 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
-// Content script build. Single entry so React is inlined — content scripts
-// are loaded as classic (non-module) scripts and can't import chunks.
+// Options page build (account / sign-in UI). Loaded via chrome-extension://, so
+// it can be a normal ES module app with its own HTML entry.
 export default defineConfig(({ mode }) => ({
   plugins: [react(), tailwindcss()],
   envDir: mode === 'production' ? '../production' : '..',
@@ -11,11 +11,11 @@ export default defineConfig(({ mode }) => ({
     outDir: '../extension',
     emptyOutDir: false,
     rollupOptions: {
-      input: 'src/content.jsx',
+      input: 'options.html',
       output: {
-        entryFileNames: 'content.js',
-        chunkFileNames: 'content-[hash].js',
-        assetFileNames: 'content.[ext]',
+        entryFileNames: 'options.js',
+        chunkFileNames: 'options-[hash].js',
+        assetFileNames: 'options.[ext]',
       },
     },
   },

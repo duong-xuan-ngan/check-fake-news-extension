@@ -20,6 +20,7 @@ from ..schema import (
     AnalysisResult,
     ConfidenceLevel,
     FetchedArticle,
+    RatingStatus,
     Source,
     Stance,
     Verdict,
@@ -80,7 +81,12 @@ TEMPORAL RULE (only when sources directly contradict each other):
 - Mention the date in your explanation when this rule resolves a contradiction.
 
 Other rules:
-- Weight higher-credibility sources more heavily.
+- A source marked UNRATED is unknown, not trustworthy and not low-credibility.
+- If every usable source is UNRATED, confidence must be LOW. State this
+  limitation clearly, but do not change a TRUE/FALSE verdict solely because
+  the source has not yet been reviewed.
+- If only one source is RATED, confidence cannot be HIGH.
+- Weight rated sources with higher credibility scores more heavily.
 - explanation: factual, concise, user-facing.
 - One stances entry per article. article_index must match the number shown.
 - Return ONLY the JSON object. No preamble, no markdown.
@@ -92,9 +98,14 @@ def _build_evidence_block(articles: List[FetchedArticle]) -> str:
     blocks = []
     for i, article in enumerate(articles, start=1):
         date_str = article.published_at.strftime("%Y-%m-%d") if article.published_at else "unknown"
+        rating = (
+            f"RATED, score {article.credibility_score}"
+            if article.rating_status == RatingStatus.RATED
+            else "UNRATED (unknown; not automatically trustworthy)"
+        )
         blocks.append(
             f"--- Article {i} ---\n"
-            f"Domain: {article.domain} (credibility: {article.credibility_score})\n"
+            f"Domain: {article.domain} ({rating})\n"
             f"Published: {date_str}\n"
             f"Title: {article.title}\n"
             f"Body: {article.body}"
@@ -128,15 +139,30 @@ def _parse_response(raw: str, articles: List[FetchedArticle]) -> AnalysisResult:
                 domain=article.domain,
                 title=article.title,
                 credibility_score=article.credibility_score,
+                rating_status=article.rating_status,
                 stance=stance,
                 published_at=article.published_at,
             ))
 
+        verdict = Verdict(data["verdict"])
+        confidence = ConfidenceLevel(data["confidence"])
+        rated_count = sum(
+            article.rating_status == RatingStatus.RATED
+            for article in articles
+        )
+        if rated_count == 0:
+            # Source rating measures evidence quality, not whether an article's
+            # factual statement supports or contradicts the claim. Keep the
+            # verdict selected from the evidence, but make confidence low.
+            confidence = ConfidenceLevel.LOW
+        elif rated_count == 1 and confidence == ConfidenceLevel.HIGH:
+            confidence = ConfidenceLevel.MEDIUM
+
         return AnalysisResult(
-            verdict=Verdict(data["verdict"]),
+            verdict=verdict,
             explanation=data["explanation"][:500],
             sources=sources,
-            confidence=ConfidenceLevel(data["confidence"]),
+            confidence=confidence,
         )
     except Exception as e:
         print(f"[synthesizer] failed to parse LLM response: {e}")

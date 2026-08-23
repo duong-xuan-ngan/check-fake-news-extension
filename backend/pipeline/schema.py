@@ -23,6 +23,11 @@ class Stance(str, Enum):
     NEUTRAL = "NEUTRAL"
 
 
+class RatingStatus(str, Enum):
+    RATED = "RATED"
+    UNRATED = "UNRATED"
+
+
 class SearchResult(BaseModel):
     """Stage 1: Raw result from Serper web search."""
     url: str
@@ -32,12 +37,13 @@ class SearchResult(BaseModel):
 
 
 class ScoredResult(BaseModel):
-    """Stage 2: SearchResult + credibility score from MBFC lookup."""
+    """Stage 2: SearchResult + optional CRED-1/manual domain rating."""
     url: str
     title: str
     snippet: str
     domain: str
-    credibility_score: float = Field(..., ge=0.0, le=1.0)
+    credibility_score: Optional[float] = Field(None, ge=0.0, le=1.0)
+    rating_status: RatingStatus
 
 
 class FetchedArticle(BaseModel):
@@ -46,7 +52,8 @@ class FetchedArticle(BaseModel):
     domain: str
     title: str
     body: str = Field(..., max_length=3000, description="Article text, truncated to 3000 chars.")
-    credibility_score: float = Field(..., ge=0.0, le=1.0, description="Passed through from filtering step.")
+    credibility_score: Optional[float] = Field(None, ge=0.0, le=1.0, description="CRED-1/manual score; None means unrated.")
+    rating_status: RatingStatus
     published_at: Optional[datetime] = Field(None, description="Article publication date. None if unavailable.")
 
 
@@ -55,7 +62,8 @@ class Source(BaseModel):
     url: str
     domain: str
     title: str
-    credibility_score: float = Field(..., ge=0.0, le=1.0)
+    credibility_score: Optional[float] = Field(None, ge=0.0, le=1.0)
+    rating_status: RatingStatus
     stance: Stance = Field(..., description="Whether this source supports, contradicts, or is neutral to the claim.")
     published_at: Optional[datetime] = Field(None, description="Article publication date. None if unavailable.")
 

@@ -24,6 +24,22 @@ const WIDGET_ZONE_WIDTH = 380
 const WIDGET_ZONE_HEIGHT = 200
 
 const BUBBLE_GUTTER = 8 // gap between the selection and the bubble's core edge (spec: 6-10px)
+const MIN_SELECTION_LENGTH = 12
+const MIN_SELECTION_WORDS = 3
+const MAX_SELECTION_LENGTH = 2000
+const RECENT_RESULT_TTL_MS = 5 * 60 * 1000
+const MAX_RECENT_RESULTS = 20
+
+const normalizeSelection = (value) => String(value || '').replace(/\s+/g, ' ').trim()
+
+const isAnalyzableSelection = (value) => {
+  const normalized = normalizeSelection(value)
+  if (normalized.length < MIN_SELECTION_LENGTH || normalized.length > MAX_SELECTION_LENGTH) return false
+  if (/^https?:\/\/\S+$/iu.test(normalized)) return false
+
+  const words = normalized.match(/[\p{L}\p{N}]+(?:['’-][\p{L}\p{N}]+)*/gu) || []
+  return words.length >= MIN_SELECTION_WORDS
+}
 
 const getFallbackRect = () => ({
   top: 100,
@@ -387,8 +403,40 @@ function hideBubble() {
 let activeController = null
 let resultDragged = false
 let signInPending = false
+const recentResults = new Map()
+
+function recentResultFor(text) {
+  const entry = recentResults.get(text)
+  if (!entry) return null
+  if (Date.now() - entry.createdAt > RECENT_RESULT_TTL_MS) {
+    recentResults.delete(text)
+    return null
+  }
+  return entry.result
+}
+
+function rememberResult(text, result) {
+  recentResults.set(text, { result, createdAt: Date.now() })
+  while (recentResults.size > MAX_RECENT_RESULTS) {
+    recentResults.delete(recentResults.keys().next().value)
+  }
+}
 
 async function runAnalysis(text, originRect) {
+  const normalizedText = normalizeSelection(text)
+  if (!isAnalyzableSelection(normalizedText)) {
+    hideResult()
+    showResult({ error: 'Select a complete claim with at least 3 words and 12 characters.' }, originRect)
+    return
+  }
+
+  const recentResult = recentResultFor(normalizedText)
+  if (recentResult) {
+    hideResult()
+    showResult({ result: recentResult }, originRect)
+    return
+  }
+
   if (activeController) activeController.abort()
   const controller = new AbortController()
   activeController = controller
@@ -413,7 +461,7 @@ async function runAnalysis(text, originRect) {
     const response = await apiFetch('/analyze', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text }),
+      body: JSON.stringify({ text: normalizedText }),
       signal: controller.signal,
     })
     if (response.status === 401) {
@@ -441,6 +489,7 @@ async function runAnalysis(text, originRect) {
     if (!response.ok) throw new Error(`Server error: ${response.status}`)
     const result = await response.json()
     if (controller.signal.aborted) return
+    rememberResult(normalizedText, result)
     hidePill()
     showResult({ result }, originRect)
   } catch (err) {
@@ -471,9 +520,10 @@ document.addEventListener('mouseup', (e) => {
   hideResult()
 
   const selection = window.getSelection()
-  const selectedText = selection.toString().trim()
+  currentSelection = ''
+  const selectedText = normalizeSelection(selection.toString())
 
-  if (selectedText && selectedText.length > 0 && selectedText.length <= 2000 && selection.rangeCount > 0) {
+  if (isAnalyzableSelection(selectedText) && selection.rangeCount > 0) {
     currentSelection = selectedText
     const range = selection.getRangeAt(0)
     const rects = Array.from(range.getClientRects()).filter((rect) => rect.width > 0 && rect.height > 0)

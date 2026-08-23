@@ -1,9 +1,11 @@
 from contextlib import contextmanager
 from datetime import date, datetime
 from typing import Iterator, Optional
+from urllib.parse import urlsplit, urlunsplit
 import uuid
 
 import psycopg2
+from psycopg2.extras import execute_values
 
 from .config import get_settings
 
@@ -36,6 +38,79 @@ def credibility_for(domain: str) -> Optional[tuple[float, str]]:
             if row := cur.fetchone():
                 return row[0], row[1]
     return None
+
+
+def _normalize_domain(value: str) -> str:
+    candidate = str(value or "").strip().lower()
+    parsed = urlsplit(candidate if "://" in candidate else f"//{candidate}")
+    return (parsed.hostname or "").removeprefix("www.").rstrip(".")
+
+
+def _lookup_candidates(domain: str) -> list[str]:
+    normalized = _normalize_domain(domain)
+    if not normalized:
+        return []
+    parts = normalized.split(".")
+    return [normalized, ".".join(parts[-2:])] if len(parts) > 2 else [normalized]
+
+
+def _sanitize_sample_url(url: str) -> Optional[str]:
+    try:
+        parsed = urlsplit(str(url or ""))
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            return None
+        return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", ""))
+    except ValueError:
+        return None
+
+
+def credibility_for_many(sources: list[dict[str, str]]) -> dict[str, Optional[tuple[float, str]]]:
+    """Batch-rate sources and queue unknown domains for human review.
+
+    The returned keys are normalized domains. Unknown means unrated; it is not
+    an assertion that the source is credible or non-credible.
+    """
+    normalized_sources: list[tuple[str, Optional[str]]] = []
+    all_candidates: set[str] = set()
+    for source in sources:
+        domain = _normalize_domain(source.get("domain", ""))
+        if not domain:
+            continue
+        normalized_sources.append((domain, _sanitize_sample_url(source.get("url", ""))))
+        all_candidates.update(_lookup_candidates(domain))
+
+    if not normalized_sources:
+        return {}
+
+    with connection() as conn, conn.cursor() as cur:
+        cur.execute(
+            "SELECT domain, credibility_score, category FROM sources WHERE domain = ANY(%s)",
+            (list(all_candidates),),
+        )
+        known = {row[0]: (row[1], row[2]) for row in cur.fetchall()}
+
+        ratings: dict[str, Optional[tuple[float, str]]] = {}
+        unknown_rows = []
+        for domain, sample_url in normalized_sources:
+            rating = next(
+                (known[candidate] for candidate in _lookup_candidates(domain) if candidate in known),
+                None,
+            )
+            ratings[domain] = rating
+            if rating is None:
+                unknown_rows.append((domain, sample_url))
+
+        if unknown_rows:
+            execute_values(cur, """
+                INSERT INTO source_candidates (domain, sample_url)
+                VALUES %s
+                ON CONFLICT (domain) DO UPDATE SET
+                    sample_url = COALESCE(EXCLUDED.sample_url, source_candidates.sample_url),
+                    last_seen_at = now(),
+                    discovery_count = source_candidates.discovery_count + 1
+            """, unknown_rows)
+
+    return ratings
 
 
 def write_log(log: dict) -> None:

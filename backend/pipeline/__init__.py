@@ -22,6 +22,7 @@ from .schema import (
     AnalysisResult,
     ConfidenceLevel,
     FetchedArticle,
+    RatingStatus,
     SearchResult,
     Source,
     Stance,
@@ -35,6 +36,7 @@ __all__ = [
     "AnalysisResult",
     "ConfidenceLevel",
     "FetchedArticle",
+    "RatingStatus",
     "SearchResult",
     "Source",
     "Stance",
@@ -72,7 +74,7 @@ def analyze(text: str) -> AnalysisResult:
     # 4. Search → filter → fetch → synthesize
     results  = searcher.search(search_query)
     scored   = credibility_filter.filter_credible(results)
-    articles = fetcher.fetch_all(scored)
+    articles = fetcher.fetch_all(scored, english_claim)
     result   = synthesizer.synthesize(english_claim, articles)
 
     # 5. Cache the fresh result for future requests

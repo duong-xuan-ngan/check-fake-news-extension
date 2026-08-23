@@ -16,7 +16,7 @@ uv run uvicorn main:app --reload
 ```
 
 `DATABASE_URL`, `QDRANT_HOST`, `QDRANT_PORT`, `SIMILARITY_THRESHOLD`, and
-`MBFC_CREDIBILITY_PATH` configure persistence. Search and LLM credentials are read from
+`CRED1_PATH` configure persistence and the pinned CRED-1 dataset. Search and LLM credentials are read from
 `OPENROUTER_API_KEY` and `SERPER_API_KEY`. Auth is configured with `GOOGLE_CLIENT_ID`,
 `GOOGLE_CLIENT_SECRET`, `JWT_SECRET`, `JWT_EXPIRES_MINUTES`, `REFRESH_TOKEN_EXPIRE_DAYS`,
 and `DAILY_CHECK_LIMIT`.
@@ -35,3 +35,6 @@ and `DAILY_CHECK_LIMIT`.
 
 The extension-facing `POST /analyze` response is an `AnalysisResult` with `verdict`,
 `explanation`, `sources`, `confidence`, and `cached`.
+
+Successful analysis results are cached in Qdrant for 24 hours. Older entries,
+including legacy entries without a creation timestamp, are ignored and removed on access.

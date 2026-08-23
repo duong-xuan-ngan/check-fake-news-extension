@@ -32,7 +32,7 @@ async function buildAuthUrl(clientId) {
   const verifier = base64UrlEncode(crypto.getRandomValues(new Uint8Array(32)))
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier))
   const challenge = base64UrlEncode(new Uint8Array(digest))
-  const redirectUri = `https://${chrome.runtime.id}.chromiumapp.org/`
+  const redirectUri = 'https://' + chrome.runtime.id + '.chromiumapp.org/'
   const params = new URLSearchParams({
     response_type: 'code',
     client_id: clientId,
@@ -41,13 +41,30 @@ async function buildAuthUrl(clientId) {
     code_challenge: challenge,
     code_challenge_method: 'S256',
   })
-  return { url: `https://accounts.google.com/o/oauth2/v2/auth?${params}`, verifier, redirectUri }
+  return { url: 'https://accounts.google.com/o/oauth2/v2/auth?' + params, verifier, redirectUri }
 }
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'OPEN_OPTIONS') {
     chrome.runtime.openOptionsPage()
     return false
+  }
+
+  // Keep the report payload inside the extension session, then open a local
+  // extension page. No report data is put into the page URL or sent elsewhere.
+  if (message.type === 'OPEN_FULL_REPORT') {
+    if (!message.result || typeof message.result !== 'object') {
+      sendResponse({ error: 'No report data was provided' })
+      return false
+    }
+
+    chrome.storage.session
+      .set({ snapcheckFullReport: message.result })
+      .then(() => chrome.tabs.create({ url: chrome.runtime.getURL('report.html') }))
+      .then(() => sendResponse({ ok: true }))
+      .catch((error) => sendResponse({ error: error?.message || 'Could not open the report' }))
+
+    return true
   }
 
   if (message.type === 'AUTH_GET_GOOGLE_TOKEN') {

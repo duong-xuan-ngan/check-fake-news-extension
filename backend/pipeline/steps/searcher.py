@@ -17,7 +17,7 @@ def _domain(url: str) -> str:
     return urlparse(url or "").netloc.removeprefix("www.")
 
 
-def search(query: str, top_k: int = 10) -> List[SearchResult]:
+def search(query: str, top_k: int = 20) -> List[SearchResult]:
     if not _API_KEY:
         print("[searcher] no search API key found; set SERPER_API_KEY")
         return []
@@ -29,7 +29,7 @@ def search(query: str, top_k: int = 10) -> List[SearchResult]:
                 "X-API-KEY": _API_KEY,
                 "Content-Type": "application/json",
             },
-            json={"q": query, "num": top_k},
+            json={"q": query, "num": min(max(top_k, 1), 20)},
             timeout=10,
         )
         response.raise_for_status()

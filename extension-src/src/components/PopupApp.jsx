@@ -84,9 +84,10 @@ function SourceLogo({ domain }) {
 }
 
 function SourceRow({ source }) {
-  const score = source.credibility_score ?? 0
-  const label = score >= 0.7 ? 'High' : score >= 0.45 ? 'Medium' : 'Low'
-  const color = score >= 0.7 ? '#16a34a' : score >= 0.45 ? '#d97706' : '#dc2626'
+  const isUnrated = source.rating_status === 'UNRATED' || source.credibility_score == null
+  const score = source.credibility_score
+  const label = isUnrated ? 'Unrated' : score >= 0.7 ? 'High' : score >= 0.45 ? 'Medium' : 'Low'
+  const color = isUnrated ? '#64748b' : score >= 0.7 ? '#16a34a' : score >= 0.45 ? '#d97706' : '#dc2626'
 
   return (
     <a href={source.url} target="_blank" rel="noopener noreferrer" className="vf-source-row" title={source.title}>

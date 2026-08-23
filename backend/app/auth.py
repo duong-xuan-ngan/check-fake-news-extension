@@ -5,11 +5,12 @@ from typing import Optional
 
 import jwt
 import requests
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from .config import get_settings
 from . import db
+from .rate_limit import limit_analyze
 
 _bearer = HTTPBearer(auto_error=False)
 
@@ -45,7 +46,8 @@ def exchange_google_code(code: str, code_verifier: str, redirect_uri: str) -> di
         },
         timeout=10,
     )
-    print(f"[auth] token endpoint status={token_resp.status_code} body={token_resp.text[:500]}")
+    # Never log the response body: it can contain Google access/id tokens.
+    print(f"[auth] token endpoint status={token_resp.status_code}")
     if token_resp.status_code != 200:
         detail = ""
         try:
@@ -58,14 +60,14 @@ def exchange_google_code(code: str, code_verifier: str, redirect_uri: str) -> di
     token_json = token_resp.json()
     id_token = token_json.get("id_token")
     if not id_token:
-        raise GoogleTokenError(f"No id_token returned by Google: {token_json}")
+        raise GoogleTokenError("No id_token returned by Google")
 
     info_resp = requests.get(
         "https://oauth2.googleapis.com/tokeninfo",
         params={"id_token": id_token},
         timeout=10,
     )
-    print(f"[auth] tokeninfo status={info_resp.status_code} body={info_resp.text[:500]}")
+    print(f"[auth] tokeninfo status={info_resp.status_code}")
     if info_resp.status_code != 200:
         raise GoogleTokenError(f"Invalid Google id_token: {info_resp.text[:300]}")
 
@@ -175,9 +177,12 @@ def get_current_user(
     return user
 
 
-def enforce_daily_quota(user: dict = Depends(get_current_user)) -> dict:
-    """Consume one daily check for the authenticated user; 429 if exhausted."""
+def consume_daily_quota(request: Request, user: dict) -> dict:
+    """Consume one daily check for an already authenticated user."""
     settings = get_settings()
+    # Limit bursts before consuming today's quota. A blocked retry must not
+    # cost the user one of their daily analyses.
+    limit_analyze(request, user["id"])
     today = datetime.now(timezone.utc).date()
     used = db.consume_daily_check(user["id"], today, settings.daily_check_limit)
     if used is None:
@@ -190,3 +195,11 @@ def enforce_daily_quota(user: dict = Depends(get_current_user)) -> dict:
             },
         )
     return user
+
+
+def enforce_daily_quota(
+    request: Request,
+    user: dict = Depends(get_current_user),
+) -> dict:
+    """Dependency-compatible wrapper for callers that need it."""
+    return consume_daily_quota(request, user)

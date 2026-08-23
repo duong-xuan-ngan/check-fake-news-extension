@@ -8,6 +8,15 @@ def credibility_score(domain: str) -> Optional[float]:
     return record[0] if record else None
 
 
+def credibility_scores(sources: list[dict[str, str]]) -> dict[str, Optional[float]]:
+    """Return normalized domain scores in one query and discover unknowns."""
+    records = db.credibility_for_many(sources)
+    return {
+        domain: record[0] if record is not None else None
+        for domain, record in records.items()
+    }
+
+
 def credibility_response(domain: str) -> dict:
     record = db.credibility_for(domain)
     if record is None:

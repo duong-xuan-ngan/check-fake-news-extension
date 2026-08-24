@@ -23,6 +23,7 @@ _CLIENT = OpenAI(
     api_key=os.getenv("OPENROUTER_API_KEY"),
 )
 _MODEL = "openrouter/auto"
+_REQUEST_TIMEOUT_SECONDS = 20.0
 
 _MAX_INPUT_CHARS = 1500
 
@@ -67,6 +68,7 @@ def translate_to_english(text: str) -> str:
     response = _CLIENT.chat.completions.create(
         model=_MODEL,
         temperature=0.1,
+        timeout=_REQUEST_TIMEOUT_SECONDS,
         messages=[
             {"role": "system", "content": _TRANSLATION_PROMPT},
             {"role": "user", "content": text},

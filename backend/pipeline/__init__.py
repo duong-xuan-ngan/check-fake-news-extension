@@ -18,6 +18,8 @@ Pipeline (sequential):
     cache         → store result for future requests
 """
 
+from time import perf_counter
+
 from .schema import (
     AnalysisResult,
     ConfidenceLevel,
@@ -51,6 +53,16 @@ _EMPTY_INPUT = AnalysisResult(
 )
 
 
+def _run_stage(name, operation):
+    """Run one pipeline stage and emit an operational timing without user text."""
+    started_at = perf_counter()
+    try:
+        return operation()
+    finally:
+        duration_ms = round((perf_counter() - started_at) * 1000)
+        print(f"[pipeline] stage={name} duration_ms={duration_ms}")
+
+
 def analyze(text: str) -> AnalysisResult:
     """Run the full pipeline on highlighted text.
 
@@ -58,26 +70,32 @@ def analyze(text: str) -> AnalysisResult:
     cached=True means the result was served from disk cache (no LLM calls made).
     cached=False means the full pipeline ran and the result was freshly computed.
     """
-    # 1. Normalize to English
-    english_claim = preprocessor.normalize(text)
-    if not english_claim:
-        return _EMPTY_INPUT
+    total_started_at = perf_counter()
+    try:
+        # 1. Normalize to English
+        english_claim = _run_stage("normalize", lambda: preprocessor.normalize(text))
+        if not english_claim:
+            return _EMPTY_INPUT
 
-    # 2. Cache lookup — return early if fresh result exists
-    cached_result = cache.get(english_claim)
-    if cached_result is not None:
-        return cached_result
+        # 2. Cache lookup — return early if fresh result exists
+        cached_result = _run_stage("cache_lookup", lambda: cache.get(english_claim))
+        if cached_result is not None:
+            print("[pipeline] cache=hit")
+            return cached_result
+        print("[pipeline] cache=miss")
 
-    # 3. Build search query from the English claim
-    search_query = query_builder.build_search_query(english_claim)
+        # 3. Build search query from the English claim
+        search_query = _run_stage("query_builder", lambda: query_builder.build_search_query(english_claim))
 
-    # 4. Search → filter → fetch → synthesize
-    results  = searcher.search(search_query)
-    scored   = credibility_filter.filter_credible(results)
-    articles = fetcher.fetch_all(scored, english_claim)
-    result   = synthesizer.synthesize(english_claim, articles)
+        # 4. Search → filter → fetch → synthesize
+        results = _run_stage("search", lambda: searcher.search(search_query))
+        scored = _run_stage("credibility_filter", lambda: credibility_filter.filter_credible(results))
+        articles = _run_stage("fetch_articles", lambda: fetcher.fetch_all(scored, english_claim))
+        result = _run_stage("synthesize", lambda: synthesizer.synthesize(english_claim, articles))
 
-    # 5. Cache the fresh result for future requests
-    cache.set(english_claim, result)
-
-    return result
+        # 5. Cache the fresh result for future requests
+        _run_stage("cache_store", lambda: cache.set(english_claim, result))
+        return result
+    finally:
+        total_ms = round((perf_counter() - total_started_at) * 1000)
+        print(f"[pipeline] stage=total duration_ms={total_ms}")

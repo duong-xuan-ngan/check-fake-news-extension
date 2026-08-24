@@ -19,6 +19,7 @@ _CLIENT = OpenAI(
     api_key=os.getenv("OPENROUTER_API_KEY"),
 )
 _MODEL = "openrouter/auto"
+_REQUEST_TIMEOUT_SECONDS = 15.0
 
 _SYSTEM_PROMPT = """You are a search query optimizer.
 
@@ -64,6 +65,7 @@ def build_search_query(english_claim: str) -> str:
         response = _CLIENT.chat.completions.create(
             model=_MODEL,
             temperature=0.1,
+            timeout=_REQUEST_TIMEOUT_SECONDS,
             messages=[
                 {"role": "system", "content": _SYSTEM_PROMPT},
                 {"role": "user", "content": cleaned},

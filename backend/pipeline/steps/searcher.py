@@ -11,6 +11,7 @@ import requests
 from ..schema import SearchResult
 
 _API_KEY = os.getenv("SERPER_API_KEY")
+_REQUEST_TIMEOUT_SECONDS = 6
 
 
 def _domain(url: str) -> str:
@@ -30,7 +31,7 @@ def search(query: str, top_k: int = 20) -> List[SearchResult]:
                 "Content-Type": "application/json",
             },
             json={"q": query, "num": min(max(top_k, 1), 20)},
-            timeout=10,
+            timeout=_REQUEST_TIMEOUT_SECONDS,
         )
         response.raise_for_status()
 

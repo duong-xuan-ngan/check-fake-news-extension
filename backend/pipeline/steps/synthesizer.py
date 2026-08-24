@@ -31,6 +31,7 @@ _CLIENT = OpenAI(
     api_key=os.getenv("OPENROUTER_API_KEY"),
 )
 _MODEL = "openrouter/auto"
+_REQUEST_TIMEOUT_SECONDS = 30.0
 
 _NOT_SURE = AnalysisResult(
     verdict=Verdict.NOT_SURE,
@@ -190,6 +191,7 @@ Analyze each article against the user's claim and respond with the JSON object."
         response = _CLIENT.chat.completions.create(
             model=_MODEL,
             temperature=0.1,
+            timeout=_REQUEST_TIMEOUT_SECONDS,
             response_format={"type": "json_object"},
             messages=[
                 {"role": "system", "content": _SYSTEM_PROMPT},
